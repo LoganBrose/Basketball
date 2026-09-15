@@ -7,7 +7,7 @@
  */
 
 import { CONFIG } from './config.js';
-import { loadAll } from './data.js';
+import { loadAll, sheetProblems } from './data.js';
 import {
   gamesForPlayers, summaryFor, selectedPoints, displayName,
   STAT_FIELDS, STAT_LABELS,
@@ -316,12 +316,19 @@ function renderConnection() {
 
   const { meta, issues, mismatches, discovery, usingSample } = state.data;
   const entries = Object.entries(meta);
-  const broken = entries.filter(([, m]) => m.error || m.missing.length > 0);
+  const { blocking, quality } = sheetProblems(state.data);
 
-  pill.className = 'pill ' + (broken.length ? 'warn' : 'ok');
-  pill.textContent = broken.length
-    ? `${broken.length} tab${broken.length > 1 ? 's' : ''} need attention`
-    : (usingSample ? 'sample data' : 'connected');
+  // While everything is healthy this whole section stays out of the way. It
+  // reappears the moment it has something to tell you — which is the only time
+  // it's worth reading.
+  const section = $('#sheet-section');
+  section.hidden = blocking.length === 0 && quality === 0;
+  if (blocking.length > 0) $('#conn-panel').open = true;
+
+  pill.className = 'pill ' + (blocking.length ? 'warn' : quality ? 'warn' : 'ok');
+  pill.textContent = blocking.length
+    ? blocking[0]
+    : (quality ? `${quality} thing${quality > 1 ? 's' : ''} to check` : (usingSample ? 'sample data' : 'connected'));
 
   for (const [name, m] of entries) {
     body.append(tabReport(name, m));

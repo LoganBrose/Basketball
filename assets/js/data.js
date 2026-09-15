@@ -73,6 +73,36 @@ export async function loadAll() {
 }
 
 /**
+ * Everything wrong with a load, split by how urgent it is.
+ *
+ * `blocking` means the numbers on screen aren't your sheet's — the page has to
+ * say so. `quality` means they are your sheet's, but something in the data
+ * looks off. When both are empty the Connection panel has nothing to tell you
+ * and stays out of the way.
+ *
+ * @returns {{blocking: string[], quality: number}}
+ */
+export function sheetProblems(data) {
+  const { meta = {}, issues = {}, mismatches = [], usingSample, stale } = data || {};
+
+  const blocking = [];
+  if (usingSample) blocking.push('showing sample data');
+  if (stale) blocking.push('showing a cached copy');
+  for (const [name, m] of Object.entries(meta)) {
+    if (m.error) blocking.push(`${name}: ${m.error}`);
+    else if (m.missing?.length) blocking.push(`${name}: missing ${m.missing.length} column${m.missing.length > 1 ? 's' : ''}`);
+  }
+
+  const counts = [
+    issues.superseded, issues.unmatchedGames, issues.unmatchedPlayers,
+    issues.invalidDates, issues.sanityFlags, mismatches,
+  ];
+  const quality = counts.reduce((sum, list) => sum + (list?.length ?? 0), 0);
+
+  return { blocking, quality };
+}
+
+/**
  * "Not configured" and "configured but unreachable" need different fixes, so
  * don't tell someone to fill in config they've already filled in.
  */
