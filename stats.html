@@ -69,12 +69,16 @@
 
   <div id="game-list"></div>
 
-  <!-- ---------------- connection ---------------- -->
-  <h2 class="section-label">Sheet</h2>
-  <details class="panel" id="conn-panel">
-    <summary>Connection <span id="conn-pill" class="pill">checking…</span></summary>
-    <div class="panel-body" id="conn-body"></div>
-  </details>
+  <!-- ---------------- connection ----------------
+       Hidden entirely while the sheet is healthy; revealed only when
+       something needs attention. -->
+  <div id="sheet-section" hidden>
+    <h2 class="section-label">Sheet</h2>
+    <details class="panel" id="conn-panel">
+      <summary>Connection <span id="conn-pill" class="pill">checking…</span></summary>
+      <div class="panel-body" id="conn-body"></div>
+    </details>
+  </div>
 </main>
 
 <script type="module" src="assets/js/stats.js"></script>
