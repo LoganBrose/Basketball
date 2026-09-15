@@ -46,6 +46,7 @@ export function newPlay(overrides = {}) {
     id: uid(),
     name: 'Untitled play',
     category: '',
+    playbook: 'general',
     tags: [],
     notes: '',
     courtType: 'half',
@@ -210,6 +211,10 @@ export function normalizePlay(raw) {
     notes: raw.notes || '',
     courtType: raw.courtType === 'full' ? 'full' : 'half',
     preset: ['hs', 'ncaa', 'nba'].includes(raw.preset) ? raw.preset : 'hs',
+    // Which playbook this play belongs to — a sibling of name/category, never
+    // mixed into frames, and never tied to the lineup, which stays out of the
+    // play entirely so any play opens under any lineup.
+    playbook: raw.playbook || 'general',
     youtube: raw.youtube || null,
     frames: frames.length ? frames : [emptyFrame()],
     createdAt: raw.createdAt || new Date().toISOString(),
@@ -276,34 +281,52 @@ export async function loadTeamPlaybook() {
     if (!res.ok) {
       // A 404 and "nothing published yet" are different problems with
       // different fixes, so they must not look the same.
-      return { plays: [], error: `HTTP ${res.status} loading plays/index.json` };
+      return { playbooks: [], plays: [], error: `HTTP ${res.status} loading plays/index.json` };
     }
 
     const index = await res.json();
-    const entries = Array.isArray(index.plays) ? index.plays : [];
+
+    // The index groups plays by playbook folder. A phone may still hold the
+    // previous flat `{plays: […]}` index during a deploy, so that shape is read
+    // as a single "general" playbook rather than as nothing at all.
+    const playbooks = Array.isArray(index.playbooks)
+      ? index.playbooks
+      : [{
+        slug: 'general',
+        name: 'General',
+        description: '',
+        order: 1,
+        plays: (Array.isArray(index.plays) ? index.plays : [])
+          .map((p) => ({ ...p, path: p.path || `plays/${p.file}` })),
+      }];
+
     const failed = [];
 
-    const plays = await Promise.all(entries.map(async (entry) => {
-      const path = `plays/${entry.file}`;
-      try {
-        const r = await fetch(path + bust(), { cache: 'no-store' });
-        if (!r.ok) {
-          failed.push(`${entry.file} (HTTP ${r.status})`);
+    const loaded = await Promise.all(playbooks.map(async (pb) => {
+      const plays = await Promise.all((pb.plays || []).map(async (entry) => {
+        // `path` is what publishing needs in order to edit this exact file.
+        const path = entry.path || `plays/${pb.slug}/${entry.file}`;
+        try {
+          const r = await fetch(path + bust(), { cache: 'no-store' });
+          if (!r.ok) {
+            failed.push(`${path} (HTTP ${r.status})`);
+            return null;
+          }
+          return { ...normalizePlay(await r.json()), path, playbook: pb.slug };
+        } catch (err) {
+          failed.push(`${path} (${err.message})`);
           return null;
         }
-        // `path` is what publishing needs in order to edit this exact file.
-        return { ...normalizePlay(await r.json()), path };
-      } catch (err) {
-        failed.push(`${entry.file} (${err.message})`);
-        return null;
-      }
+      }));
+      return { ...pb, plays: plays.filter(Boolean) };
     }));
 
     return {
-      plays: plays.filter(Boolean),
+      playbooks: loaded,
+      plays: loaded.flatMap((pb) => pb.plays),
       error: failed.length ? `Could not load ${failed.join(', ')}` : null,
     };
   } catch (err) {
-    return { plays: [], error: err.message };
+    return { playbooks: [], plays: [], error: err.message };
   }
 }

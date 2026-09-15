@@ -17,10 +17,14 @@ import {
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
 import { shortName } from './model.js';
-import { printPlay } from './printout.js';
+import { printPlay, printPlaybook } from './printout.js';
 import {
   publishPlan, markPublished, fileUrl, minify, slugify as pubSlug,
 } from './publish.js';
+import {
+  DEFAULT_PLAYBOOK, slugifyPlaybook, readLocalPlaybooks, addLocalPlaybook,
+  mergePlaybooks, playbookOf, findSlugConflict, playbookExistsOnSite,
+} from './playbooks.js';
 import {
   SLOTS, readLineup, writeLineup, pruneLineup, availableFor, playerInSlot,
   assignSlot, tokenGlyph,
@@ -43,8 +47,10 @@ const S = {
   redo: [],
   ghost: true,
   team: [],
+  teamPlaybooks: [],
   teamError: null,
-  lib: { q: '', category: '', tag: '' },
+  playbooks: [],
+  lib: { q: '', category: '', tag: '', playbook: '' },
   saveTimer: null,
   // Who is standing in each offensive slot. Display only — never saved into a
   // play, so any play can be opened with any lineup.
@@ -828,7 +834,7 @@ function renderLibrary() {
   datalist.replaceChildren();
   for (const c of allCategories(plays)) datalist.append(new Option(c));
 
-  const matches = markPublished(searchPlays(plays, S.lib.q, S.lib), S.team);
+  const matches = markPublished(scopedPlays(searchPlays(plays, S.lib.q, S.lib)), S.team);
   const list = $('#play-list');
   list.replaceChildren();
 
@@ -943,37 +949,71 @@ function playRow(play, readOnly) {
     actions.append(remove);
   }
 
+  if (!readOnly) {
+    for (const [label, copy] of [['Move', false], ['Copy', true]]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'play-action';
+      b.textContent = `${label} to playbook`;
+      b.addEventListener('click', (e) => { e.stopPropagation(); relocate(play, { copy }); });
+      actions.append(b);
+    }
+  } else {
+    // Team plays can only be copied down; nothing here deletes from the site.
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'play-action';
+    b.textContent = 'Copy to this device';
+    b.title = 'To remove it from the team playbook, delete the file on GitHub.';
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const existing = listPlays().find((p) => p.id === play.id);
+      if (existing) { loadPlay(existing); return; }
+      savePlay(structuredClone(play), { touch: false });
+      renderLibraryAll();
+    });
+    actions.append(b);
+  }
+
   if (actions.childElementCount) li.append(actions);
   return li;
 }
 
 async function renderTeam() {
-  const { plays, error } = await loadTeamPlaybook();
+  const { plays, playbooks, error } = await loadTeamPlaybook();
   S.team = plays;
+  S.teamPlaybooks = playbooks || [];
   S.teamError = error;
 
-  $('#team-count').textContent = String(plays.length);
+  renderLibraryAll();   // published badges depend on the team index
+}
+
+/** Render only — changing the playbook picker must not refetch the site. */
+function renderTeamList() {
   const status = $('#team-status');
   const list = $('#team-list');
+  const shown = scopedPlays(S.team);
+
+  $('#team-count').textContent = String(shown.length);
   list.replaceChildren();
 
   // An empty list and a failed fetch are different problems. Saying which one
   // it is turns "where did my play go" into a fixable answer.
-  if (error) {
+  if (S.teamError) {
     status.className = 'small missing';
-    status.textContent = `Couldn't load the team playbook — ${error}`;
-  } else if (plays.length === 0) {
+    status.textContent = `Couldn't load the team playbook — ${S.teamError}`;
+  } else if (S.team.length === 0) {
     status.className = 'small muted';
     status.textContent = 'No team plays published yet.';
+  } else if (shown.length === 0) {
+    status.className = 'small muted';
+    status.textContent = 'Nothing published in this playbook yet.';
   } else {
     status.className = 'small muted';
     status.textContent = '';
   }
 
-  for (const play of plays) list.append(playRow(play, true));
-
-  renderLibrary();   // published badges depend on the team index
-  refreshPublish();
+  for (const play of shown) list.append(playRow(play, true));
 }
 
 function download(filename, text) {
@@ -989,6 +1029,123 @@ function download(filename, text) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Playbooks                                                           */
+/* ------------------------------------------------------------------ */
+
+/** The selected playbook lives in the URL so a link opens straight to one. */
+function readPlaybookParam() {
+  S.lib.playbook = new URLSearchParams(location.search).get('playbook') || '';
+}
+
+function writePlaybookParam() {
+  const q = new URLSearchParams(location.search);
+  if (S.lib.playbook) q.set('playbook', S.lib.playbook);
+  else q.delete('playbook');
+  const qs = q.toString();
+  history.replaceState(null, '', qs ? `${location.pathname}?${qs}` : location.pathname);
+}
+
+function refreshPlaybooks() {
+  S.playbooks = mergePlaybooks(S.teamPlaybooks, readLocalPlaybooks(), listPlays());
+
+  // Library picker: "All plays" plus every playbook with its count.
+  const picker = $('#lib-playbook');
+  const keep = S.lib.playbook;
+  picker.replaceChildren(new Option(`All plays (${S.playbooks.reduce((n, p) => n + p.count, 0)})`, ''));
+  for (const pb of S.playbooks) {
+    picker.append(new Option(`${pb.name} (${pb.count})`, pb.slug));
+  }
+  picker.value = S.playbooks.some((p) => p.slug === keep) ? keep : '';
+  S.lib.playbook = picker.value;
+
+  // The current play's own playbook. Always offers the default, so a play can
+  // never be stranded in a playbook that no longer exists.
+  const own = $('#p-playbook');
+  const slugs = new Set(S.playbooks.map((p) => p.slug));
+  own.replaceChildren();
+  if (!slugs.has(DEFAULT_PLAYBOOK)) own.append(new Option('General', DEFAULT_PLAYBOOK));
+  for (const pb of S.playbooks) own.append(new Option(pb.name, pb.slug));
+  own.value = playbookOf(S.play);
+  if (own.value !== playbookOf(S.play)) {
+    own.append(new Option(playbookOf(S.play), playbookOf(S.play)));
+    own.value = playbookOf(S.play);
+  }
+}
+
+/**
+ * Re-render everything that depends on the playbook selection.
+ *
+ * Both lists and the publish target read the same selection, so refreshing
+ * them separately is how one ends up showing a different playbook than the
+ * other.
+ */
+function renderLibraryAll() {
+  refreshPlaybooks();
+  renderLibrary();
+  renderTeamList();
+  refreshPublish();
+}
+
+/** Plays shown in the library, scoped to the selected playbook. */
+function scopedPlays(plays) {
+  if (!S.lib.playbook) return plays;
+  return plays.filter((p) => playbookOf(p) === S.lib.playbook);
+}
+
+function onNewPlaybook() {
+  const name = prompt('Playbook name (e.g. Zone Offense)');
+  if (!name || !name.trim()) return;
+  const description = prompt('Short description (optional)') || '';
+
+  const entry = addLocalPlaybook(name.trim(), description.trim());
+  S.lib.playbook = entry.slug;
+  // A new playbook is where you're about to work, so put the current play in it.
+  S.play.playbook = entry.slug;
+  scheduleSave();
+  writePlaybookParam();
+  renderLibraryAll();
+}
+
+/** Move or copy a play into another playbook. */
+function relocate(play, { copy }) {
+  const options = S.playbooks.map((p) => `${p.slug} — ${p.name}`).join('\n');
+  const slug = prompt(`${copy ? 'Copy' : 'Move'} “${play.name}” to which playbook?\n\n${options}`,
+    playbookOf(play));
+  if (!slug) return;
+
+  const target = slugifyPlaybook(slug.split(' — ')[0]);
+  if (copy) {
+    // A copy into a different playbook is a different play: it will publish to
+    // a different path, so it needs its own id.
+    savePlay({
+      ...structuredClone(play),
+      id: uid(),
+      name: target === playbookOf(play) ? `${play.name} (copy)` : play.name,
+      playbook: target,
+      createdAt: new Date().toISOString(),
+    });
+  } else {
+    savePlay({ ...play, playbook: target });
+    if (S.play.id === play.id) S.play.playbook = target;
+  }
+
+  renderLibraryAll();
+}
+
+function currentPlaybook() {
+  return S.playbooks.find((p) => p.slug === (S.lib.playbook || playbookOf(S.play)))
+    || { slug: DEFAULT_PLAYBOOK, name: 'General', description: '' };
+}
+
+/** Every play in the selected playbook, team and device, one per id. */
+function playbookPlays(pb) {
+  const device = listPlays().filter((p) => playbookOf(p) === pb.slug);
+  const team = S.team.filter((p) => playbookOf(p) === pb.slug);
+  const seen = new Set(device.map((p) => p.id));
+  return [...device, ...team.filter((p) => !seen.has(p.id))];
+}
+
+/* ------------------------------------------------------------------ */
 /* Publish + PDF                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -1000,12 +1157,32 @@ function download(filename, text) {
  * awaits before opening simply does nothing on a phone — which is the one
  * device this feature exists for.
  */
+function currentPublishPlan() {
+  const slug = playbookOf(S.play);
+  const conflict = findSlugConflict(S.team, slug, pubSlug(S.play.name), S.play.id);
+  if (conflict) {
+    return {
+      action: 'conflict',
+      path: conflict.path,
+      url: null,
+      clipboard: null,
+      clipboardOnly: false,
+      message: `“${conflict.name}” already uses this filename in that playbook. Rename this play before publishing.`,
+    };
+  }
+  return publishPlan(S.play, S.team, {
+    playbook: slug,
+    playbookExists: playbookExistsOnSite(S.teamPlaybooks, slug),
+    playbookName: (S.playbooks.find((p) => p.slug === slug) || {}).name || slug,
+  });
+}
+
 function refreshPublish() {
   const link = $('#p-publish');
   const note = $('#publish-note');
   if (!link) return;
 
-  const plan = publishPlan(S.play, S.team);
+  const plan = currentPublishPlan();
   link.dataset.action = plan.action;
   link.dataset.path = plan.path;
 
@@ -1015,6 +1192,18 @@ function refreshPublish() {
     link.textContent = 'Rename before publishing';
     note.className = 'small missing';
     note.textContent = plan.message;
+    return;
+  }
+
+  // A playbook that doesn't exist on the site yet needs its own commit first.
+  // Doing that as an explicit first step beats opening two tabs: a second
+  // window.open is exactly what Safari blocks.
+  if (plan.playbookUrl) {
+    link.href = plan.playbookUrl;
+    link.classList.remove('disabled');
+    link.textContent = 'Create playbook on the site';
+    note.className = 'small';
+    note.textContent = 'Two commits: commit this playbook file, then press Publish again for the play.';
     return;
   }
 
@@ -1029,7 +1218,7 @@ function refreshPublish() {
 
 async function onPublishClick(e) {
   const link = $('#p-publish');
-  const plan = publishPlan(S.play, S.team);
+  const plan = currentPublishPlan();
 
   if (plan.action === 'conflict') {
     e.preventDefault();
@@ -1039,6 +1228,12 @@ async function onPublishClick(e) {
 
   // Copy inside the click, before the anchor navigates: a later write loses
   // the user gesture that browsers require.
+  if (plan.playbookUrl) {
+    $('#publish-note').className = 'small';
+    $('#publish-note').textContent = 'Commit the playbook file, then press Publish again for the play.';
+    return;
+  }
+
   if (plan.clipboard) {
     try {
       await navigator.clipboard.writeText(plan.clipboard);
@@ -1065,6 +1260,42 @@ const printDraw = {
   renderArrow: (a) => renderArrow(a),
   renderText: (t) => renderText(t),
 };
+
+/* ------------------------------------------------------------------ */
+/* Collapsible cards                                                   */
+/* ------------------------------------------------------------------ */
+
+const COLLAPSE_KEY = 'bb.collapse.v1';
+
+/**
+ * Remember which cards are open.
+ *
+ * The toggling itself is native <details> behaviour; this only persists the
+ * choice, so a coach who collapses the library keeps a short page next time
+ * instead of re-collapsing it on every visit.
+ */
+function bindCollapsibles() {
+  let saved = {};
+  try {
+    saved = JSON.parse(globalThis.localStorage?.getItem(COLLAPSE_KEY) || '{}') || {};
+  } catch {
+    saved = {};
+  }
+
+  for (const card of document.querySelectorAll('[data-collapse]')) {
+    const key = card.dataset.collapse;
+    if (key in saved) card.open = Boolean(saved[key]);
+
+    card.addEventListener('toggle', () => {
+      saved[key] = card.open;
+      try {
+        globalThis.localStorage?.setItem(COLLAPSE_KEY, JSON.stringify(saved));
+      } catch {
+        /* blocked storage: collapsing still works, it just won't be remembered */
+      }
+    });
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */
@@ -1133,6 +1364,24 @@ function bind() {
     else { const play = newPlay(); savePlay(play); loadPlay(play); }
   });
 
+  $('#lib-playbook').addEventListener('change', (e) => {
+    S.lib.playbook = e.target.value;
+    writePlaybookParam();
+    renderLibraryAll();
+  });
+  $('#pb-new').addEventListener('click', onNewPlaybook);
+  $('#pb-pdf').addEventListener('click', () => {
+    const pb = currentPlaybook();
+    const plays = playbookPlays(pb);
+    if (plays.length === 0) { alert(`“${pb.name}” has no plays yet.`); return; }
+    printPlaybook(pb, plays, printDraw);
+  });
+  $('#p-playbook').addEventListener('change', (e) => {
+    S.play.playbook = e.target.value;
+    scheduleSave();
+    renderLibraryAll();
+  });
+
   $('#lib-search').addEventListener('input', (e) => { S.lib.q = e.target.value; renderLibrary(); });
   $('#lib-category').addEventListener('change', (e) => { S.lib.category = e.target.value; renderLibrary(); });
   $('#lib-tag').addEventListener('change', (e) => { S.lib.tag = e.target.value; renderLibrary(); });
@@ -1192,8 +1441,10 @@ function bind() {
 }
 
 function init() {
+  readPlaybookParam();
   bindForm();
   bind();
+  bindCollapsibles();
 
   // Reopen whatever was last worked on rather than a blank floor.
   const existing = listPlays();

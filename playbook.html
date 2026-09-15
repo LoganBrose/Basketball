@@ -98,11 +98,11 @@
 
     <!-- ---------------- side column ---------------- -->
     <aside class="pb-side">
-      <div class="card">
-        <div class="pb-side-head">
+      <details class="card collapsible" data-collapse="play" open>
+        <summary class="pb-side-head">
           <h2>This play</h2>
           <span class="pill" id="save-state">—</span>
-        </div>
+        </summary>
 
         <div class="field">
           <label for="p-name">Name</label>
@@ -136,6 +136,11 @@
           </div>
         </div>
 
+        <div class="field">
+          <label for="p-playbook">Playbook</label>
+          <select id="p-playbook"></select>
+        </div>
+
         <div class="pb-actions">
           <button type="button" class="btn btn-primary" id="p-pdf">Export PDF</button>
           <a class="btn" id="p-publish" href="#" target="_blank" rel="noopener">Publish to team playbook</a>
@@ -156,15 +161,24 @@
             <button type="button" class="btn" id="p-export">Download backup (.json)</button>
           </div>
         </details>
-      </div>
+      </details>
 
-      <div class="card">
-        <div class="pb-side-head">
+      <details class="card collapsible" data-collapse="device" open>
+        <summary class="pb-side-head">
           <h2>On this device</h2>
           <span class="pill" id="lib-count">0</span>
-        </div>
+        </summary>
         <p class="small muted">Saved only in this browser. Publish to team playbook to see it on
           other devices.</p>
+
+        <div class="field">
+          <label for="lib-playbook">Playbook</label>
+          <select id="lib-playbook"></select>
+        </div>
+        <div class="pb-actions">
+          <button type="button" class="btn" id="pb-new">New playbook</button>
+          <button type="button" class="btn" id="pb-pdf">Export playbook as PDF</button>
+        </div>
 
         <div class="field">
           <label for="lib-search">Search</label>
@@ -188,18 +202,18 @@
           <button type="button" class="btn" id="lib-import">Import…</button>
           <input type="file" id="lib-file" accept="application/json,.json" hidden>
         </div>
-      </div>
+      </details>
 
-      <div class="card" id="team-card">
-        <div class="pb-side-head">
+      <details class="card collapsible" id="team-card" data-collapse="team" open>
+        <summary class="pb-side-head">
           <h2>Team playbook</h2>
           <span class="pill" id="team-count">0</span>
-        </div>
+        </summary>
         <p class="small muted">Published to the site in <code>plays/</code> — the same on every
           device. Opening one copies it here so you can edit it.</p>
         <p class="small" id="team-status"></p>
         <ul class="play-list" id="team-list"></ul>
-      </div>
+      </details>
     </aside>
   </div>
 </main>
