@@ -952,3 +952,43 @@ details.panel.secondary > summary { padding: 10px 14px; font-size: 0.85rem; }
 @media print {
   .print-frames:has(.print-court[viewBox$='94']) { grid-template-columns: 1fr; }
 }
+
+/* ---- collapsible cards ---- */
+
+details.card.collapsible { padding: 0; }
+
+details.card.collapsible > summary.pb-side-head {
+  cursor: pointer;
+  list-style: none;
+  padding: 16px 18px;
+  margin: 0;
+  gap: 10px;
+}
+
+details.card.collapsible > summary::-webkit-details-marker { display: none; }
+
+details.card.collapsible > summary.pb-side-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The caret sits with the title rather than floating, so the hit area reads as
+   one control. */
+details.card.collapsible > summary.pb-side-head h2::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+details.card.collapsible[open] > summary.pb-side-head h2::before { content: '▾'; }
+details.card.collapsible > summary:hover { background: var(--surface-2); }
+details.card.collapsible > summary:hover h2::before { color: var(--accent); }
+details.card.collapsible[open] > summary.pb-side-head { border-bottom: 1px solid var(--border); }
+
+/* Everything after the summary is the body. */
+details.card.collapsible > *:not(summary) { margin-left: 18px; margin-right: 18px; }
+details.card.collapsible > *:not(summary):first-of-type { margin-top: 14px; }
+details.card.collapsible > *:last-child { margin-bottom: 16px; }
+
+@media print { details.card.collapsible { display: none; } }
