@@ -34,6 +34,34 @@ export const SCHEMAS = {
       homeAway: ['home/away', 'h/a', 'home away', 'homeaway'],
     },
   },
+  /**
+   * The StatsLog tab: one row per player per game, typed into the sheet.
+   * Same stat columns as the Form, but keyed on `Stat ID` and referencing
+   * `Game ID` / `Player ID` directly instead of dropdown labels.
+   */
+  statslog: {
+    key: 'stat id',
+    fields: {
+      statId: ['stat id'],
+      player: ['player id'],
+      game: ['game id'],
+      points: ['points', 'pts'],
+      rebounds: ['rebounds', 'reb', 'rebs'],
+      assists: ['assists', 'ast'],
+      steals: ['steals', 'stl'],
+      blocks: ['blocks', 'blk'],
+      turnovers: ['turnovers', 'tov', 'to'],
+      fgm: ['fgm'],
+      fga: ['fga'],
+      tpm: ['3pm', '3ptm'],
+      tpa: ['3pa', '3pta'],
+      ftm: ['ftm'],
+      fta: ['fta'],
+      fouls: ['fouls', 'pf'],
+      notes: ['notes', 'note'],
+    },
+  },
+
   responses: {
     key: 'player',
     fields: {
@@ -166,6 +194,65 @@ export function gvizUrl(fileId, tabName) {
     `https://docs.google.com/spreadsheets/d/${encodeURIComponent(fileId)}` +
     `/gviz/tq?tqx=out:csv&headers=0&sheet=${encodeURIComponent(tabName)}`
   );
+}
+
+/** The published HTML view, which lists every published tab and its gid. */
+export function pubHtmlUrl(pubKey) {
+  return `https://docs.google.com/spreadsheets/d/e/${encodeURIComponent(pubKey)}/pubhtml`;
+}
+
+/**
+ * Pull tab name -> gid out of a published sheet's HTML.
+ *
+ * The pubhtml page carries a tab strip built from elements whose ids look like
+ * `sheet-button-<gid>`. Reading it means a publish key alone is enough — no
+ * hunting for gids in the sheet UI.
+ *
+ * Parsed with the DOM rather than by regex over the whole document, so sheet
+ * content can never be interpreted as markup.
+ *
+ * @returns {Object<string,string>} normalized tab name -> gid
+ */
+export function parseTabGids(html) {
+  const map = {};
+  if (typeof html !== 'string' || html === '') return map;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const li of doc.querySelectorAll('[id^="sheet-button-"]')) {
+    const gid = li.id.slice('sheet-button-'.length);
+    const name = (li.textContent || '').trim();
+    if (gid && name) map[normalizeHeader(name)] = gid;
+  }
+  return map;
+}
+
+/**
+ * Discover gids for a published sheet. Cached for the session so three tabs
+ * cost one request.
+ *
+ * @returns {Promise<{gids: Object<string,string>, error: string|null}>}
+ */
+let gidPromise = null;
+export function discoverGids(pubKey, { force = false } = {}) {
+  if (!pubKey) return Promise.resolve({ gids: {}, error: 'No publish key configured.' });
+  if (gidPromise && !force) return gidPromise;
+
+  gidPromise = (async () => {
+    try {
+      const res = await fetch(pubHtmlUrl(pubKey) + '?_=' + Date.now());
+      if (!res.ok) return { gids: {}, error: `HTTP ${res.status} fetching the published sheet.` };
+      const gids = parseTabGids(await res.text());
+      if (Object.keys(gids).length === 0) {
+        return { gids: {}, error: 'The published page listed no tabs.' };
+      }
+      return { gids, error: null };
+    } catch (err) {
+      // Usually CORS. The manual gid path in config.js still works.
+      return { gids: {}, error: `Could not read the published sheet's tab list (${err.message}). Add tab gids in config.js.` };
+    }
+  })();
+
+  return gidPromise;
 }
 
 /** Published-to-web CSV export, addressed by GID. */

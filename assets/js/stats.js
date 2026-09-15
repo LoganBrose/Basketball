@@ -7,7 +7,8 @@
  */
 
 import { CONFIG } from './config.js';
-import { SCHEMAS, endpointsFor, loadTab } from './sheets.js';
+import { SCHEMAS, endpointsFor, loadTab, discoverGids } from './sheets.js';
+import { normalizeHeader } from './csv.js';
 import {
   buildDataset, aggregate, displayName, STAT_FIELDS, STAT_LABELS,
 } from './model.js';
@@ -20,6 +21,8 @@ const state = {
   rows: [],
   issues: null,
   meta: {},
+  discovery: null,
+  statsTabLabel: 'Stats',
   view: 'player',
   teamMode: 'totals',
   sort: { key: 'date', dir: 'asc' },
@@ -386,6 +389,17 @@ function renderConnection() {
     dl.append(el('dd', { text: parts.join(' · ') }));
   }
 
+  const disc = state.discovery;
+  if (disc && !disc.skipped) {
+    dl.append(el('dt', { text: 'Tab discovery' }));
+    const found = Object.keys(disc.gids || {});
+    dl.append(el('dd', {
+      text: disc.error
+        ? disc.error
+        : `read ${found.length} tab${found.length === 1 ? '' : 's'} from the published page — ${found.join(', ')}`,
+    }));
+  }
+
   const fetchedAt = metas.map(([, m]) => m.fetchedAt).filter(Boolean).sort().pop();
   dl.append(el('dt', { text: 'Last refresh' }));
   dl.append(el('dd', {
@@ -509,21 +523,35 @@ function setBanner(message) {
 async function load() {
   const { sheet } = CONFIG;
 
+  // With only a publish key configured, read the gids off the published page
+  // rather than making anyone look them up by hand.
+  const needsDiscovery = !sheet.fileId && Object.values(sheet.tabs).every((t) => !t.gid);
+  state.discovery = needsDiscovery && sheet.pubKey
+    ? await discoverGids(sheet.pubKey)
+    : { gids: {}, error: null, skipped: true };
+
+  const gidFor = (tab) => tab.gid || state.discovery.gids[normalizeHeader(tab.name)] || '';
+
+  // The stats source is either the hand-typed StatsLog tab or the Form's own
+  // responses tab. They share every stat column and differ only in their key.
+  const source = CONFIG.statsSource === 'responses' ? 'responses' : 'statslog';
+  state.statsTabLabel = sheet.tabs[source].name;
+
   const tabs = [
     ['players', SCHEMAS.players, sheet.tabs.players, CONFIG.sample.players],
     ['games', SCHEMAS.games, sheet.tabs.games, CONFIG.sample.games],
-    ['responses', SCHEMAS.responses, sheet.tabs.responses, CONFIG.sample.responses],
+    [source, SCHEMAS[source], sheet.tabs[source], CONFIG.sample[source]],
   ];
 
   const results = await Promise.all(tabs.map(([name, schema, tab, sampleUrl]) =>
     loadTab({
       name,
       schema,
-      endpoints: endpointsFor(sheet, tab.name, tab.gid),
+      endpoints: endpointsFor(sheet, tab.name, gidFor(tab)),
       sampleUrl,
     })));
 
-  state.meta = { Players: results[0], Games: results[1], 'Form responses': results[2] };
+  state.meta = { Players: results[0], Games: results[1], [state.statsTabLabel]: results[2] };
   state.players = results[0].records;
 
   const built = buildDataset({
@@ -541,7 +569,18 @@ async function load() {
   });
 
   if (results.some((r) => r.strategy === 'bundled sample data')) {
-    setBanner('Showing bundled sample data — the Google Sheet isn\'t configured yet. Add your fileId or tab gids in assets/js/config.js. See the README.');
+    // "Not configured" and "configured but unreachable" need different fixes,
+    // so don't tell someone to fill in config they've already filled in.
+    const configured = Boolean(sheet.fileId) || Object.values(sheet.tabs).some((t) => t.gid);
+    let why;
+    if (state.discovery?.error) {
+      why = `Showing sample data — ${state.discovery.error}`;
+    } else if (configured) {
+      why = 'Showing sample data — the Google Sheet couldn\'t be reached. Open Connection below for the exact error: usually the sheet needs "Anyone with the link" access, or the tabs need publishing.';
+    } else {
+      why = 'Showing sample data — the Google Sheet isn\'t configured yet. Add your fileId or tab gids in assets/js/config.js. See the README.';
+    }
+    setBanner(why);
   } else if (results.some((r) => r.stale)) {
     setBanner('Showing the last saved copy — the sheet couldn\'t be reached just now. Open Connection below for the exact error.');
   } else {

@@ -1,0 +1,19 @@
+Stats Log — one row per player per game,,,,,,,,,,,,,,,,,,,,
+"Legend: yellow cells = type your data. Enter Game ID (from Games tab) and Player ID (from Players tab); Player Name, Date, Opponent, and Home/Away fill in automatically.",,,,,,,,,,,,,,,,,,,,
+"Example rows use a Stat ID starting with EX and are ignored by the site.",,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,
+Stat ID,Game ID,Player ID,Player Name (auto),Date (auto),Opponent (auto),Home/Away (auto),Points,Rebounds,Assists,Steals,Blocks,Turnovers,FGM,FGA,3PM,3PA,FTM,FTA,Fouls,Notes
+EX1,G01,P1,Example Player,9/15/2025,Central,Home,10,4,2,1,0,1,4,8,1,2,1,2,2,Example row
+S01,G01,P1,John Smith,9/15/2025,Central,Home,15,6,3,2,1,2,6,11,1,3,2,2,3,
+S02,G01,P2,Jane Doe,9/15/2025,Central,Home,8,9,1,3,2,1,4,7,0,1,0,0,2,
+S03,G01,P3,Marcus Lee,9/15/2025,Central,Home,20,8,1,0,2,3,5,9,1,2,1,2,4,"Big night inside, check the scorebook"
+S04,G02,P1,John Smith,9/22/2025,North,Away,10,4,5,1,0,3,4,15,1,7,2,3,2,
+S05,G02,P2,Jane Doe,9/22/2025,North,Away,11,7,2,1,1,2,4,10,1,4,2,2,3,
+S06,G02,P3,Marcus Lee,9/22/2025,North,Away,9,4,,,,,,,,,,,,Points and boards only
+S07,G03,P1,John Smith,9/29/2025,South,Home,,,,,,,,,,,,,,Sat out with an ankle
+S08,G03,P2,Jane Doe,9/29/2025,South,Home,6,11,0,0,3,0,3,6,0,0,0,1,1,
+S09,G03,P3,Marcus Lee,9/29/2025,South,Home,7,6,2,1,1,1,3,5,1,2,0,0,2,
+S10,G04,P1,John Smith,10/6/2025,East,Away,12,5,2,0,0,1,5,9,2,4,0,0,4,
+S11,G09,P1,John Smith,,,,5,2,1,0,0,0,2,4,0,1,1,2,1,
+S12,G04,P99,,10/6/2025,East,Away,4,1,0,0,0,1,2,3,0,0,0,0,2,
+S13,G02,P1,John Smith,9/22/2025,North,Away,21,4,5,1,0,3,8,15,3,7,2,3,2,Corrected — first entry had the wrong FGM
