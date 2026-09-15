@@ -13,14 +13,26 @@ dependencies.
 ## How the stats tracker works
 
 ```
-Google Form  ──submit from your phone──▶  Form responses tab  ──published CSV──▶  stats.html
-                                                 ▲
-                              Players + Games tabs supply names, dates, opponents
+you type rows      ─▶  StatsLog tab        ─┐
+   — or —                                   ├─ published CSV ─▶  stats.html
+Google Form  ─▶  Form responses tab        ─┘
+                                            ▲
+                    Players + Games tabs supply names, dates, opponents
 ```
 
-The Form's responses tab **is** the stats source. There is exactly one way stats get in — the Form —
-so there is never a question of which copy is right. The site reads three tabs and does the joins
-itself in your browser; it never writes anything.
+The site reads three tabs and does the joins itself in your browser. It never writes anything.
+
+**One config line picks the stats source**, and only one is ever read — so there's never a question
+of which copy is right:
+
+```js
+statsSource: 'statslog'    // the StatsLog tab you type into      ← current setting
+statsSource: 'responses'   // the Google Form's responses tab
+```
+
+It currently reads **`StatsLog`**, because the Form doesn't exist yet. Build the Form (step 4),
+then flip that one line. Every rule below — dedupe, DNP, sanity checks — works identically either
+way.
 
 ---
 
@@ -35,7 +47,11 @@ rows above the headers are fine and can be edited freely.
 |---|---|---|
 | `Players` | `Player ID` | `Player ID`, `Full Name`, `Jersey Number`, `Position` |
 | `Games` | `Game ID` | `Game ID`, `Date`, `Opponent`, `Home/Away` |
-| Form responses | `Player` | `Game`, `Player`, `Points`, `Rebounds`, `Assists`, `Steals`, `Blocks`, `Turnovers`, `FGM`, `FGA`, `3PM`, `3PA`, `FTM`, `FTA`, `Fouls`, `Notes` |
+| `StatsLog` | `Stat ID` | `Game ID`, `Player ID`, `Points`, `Rebounds`, `Assists`, `Steals`, `Blocks`, `Turnovers`, `FGM`, `FGA`, `3PM`, `3PA`, `FTM`, `FTA`, `Fouls`, `Notes` |
+| Form responses | `Player` | the same stat columns, plus `Game` and `Player` dropdown labels |
+
+`PlayerSummary` isn't read at all — the site reimplements it, so you get the same totals without
+touching the sheet.
 
 Notes:
 
@@ -44,51 +60,42 @@ Notes:
   dropped for resembling the example.
 - `Date` may be `M/D/YYYY` or `YYYY-MM-DD`.
 - `Home/Away` should be exactly `Home` or `Away`.
-- The `(auto)` lookup columns in your `StatsLog` tab aren't needed — the site joins `Players` and
-  `Games` by ID itself. `StatsLog` and `PlayerSummary` stay in the sheet for your own use; the site
-  doesn't read them.
+- The `(auto)` lookup columns in `StatsLog` aren't needed — the site joins `Players` and `Games` by
+  ID itself and lists those columns as unused in the Connection panel. They do no harm; keep them if
+  you like reading the sheet directly.
 
 ### 2. Publish the sheet
 
 **File → Share → Publish to web.**
 
-> **If you publish *selected tabs* rather than the entire document, you must add the Form responses
-> tab to the published list.** It's the only stats source — if it isn't published, the site loads
-> your roster and schedule and shows no stats at all.
+> **If you publish *selected tabs* rather than the entire document, publish `Players`, `Games` and
+> whichever tab `statsSource` points at** — today `StatsLog`, later the Form responses tab. Miss the
+> stats tab and the site loads your roster and schedule and shows no stats at all.
 
-Publishing is also how the propagation delay gets introduced: **published CSVs can take up to about
-5 minutes to reflect a new Form submission.** A stat you just entered may not appear on the next
+This matters only for the `pubKey` route; the `fileId` route uses link-sharing instead. Publishing
+is also where the propagation delay comes from: **published CSVs can take up to about 5 minutes to
+reflect a new row.** A stat you just entered may not appear on the next
 refresh. The site repeats this note next to the last-refresh time in the Connection panel, so a
 slow update is never mistaken for a broken site.
 
 ### 3. Point the site at your sheet — `assets/js/config.js`
 
-Two ways to address tabs. Either works; you only need one.
-
-**Preferred — by file ID (no gids to look up):**
-
-```js
-fileId: '1AbC...'   // from docs.google.com/spreadsheets/d/<fileId>/edit
-```
-
-Also set the sheet's General access to **"Anyone with the link"**. Tabs are then addressed by name,
-so nothing breaks when a tab is moved or re-created. Check that `tabs.*.name` matches your tab names
-exactly — the Form's tab is usually `Form Responses 1`.
-
-**Alternative — by publish key + gids:**
-
-`pubKey` is already filled in from your published URL. Add each tab's gid, which you read from the
-tab's own URL after `#gid=`:
+**This is already filled in** with your file ID and the three tab gids, so there is nothing to do
+here unless you swap sheets. Two routes are configured and tried in order, so one failing doesn't
+take the site down:
 
 ```js
-tabs: {
-  players:   { name: 'Players',          gid: '0' },
-  games:     { name: 'Games',            gid: '123456789' },
-  responses: { name: 'Form Responses 1', gid: '987654321' },
-}
+fileId: '1RRmiDGS5j4IWGc5B6BnC7aNXMzZLbtOTSLaIKkqIc8s'   // tabs addressed by name
+pubKey: '2PACX-1vTIRdv…'                                  // tabs addressed by gid
 ```
 
-Leave both unset and the site runs on the bundled sample data in `data/sample/` and says so.
+The `fileId` route needs the sheet's General access set to **"Anyone with the link"**. The `pubKey`
+route needs the tabs published (step 2). If neither works, the site falls back to the bundled sample
+data and the Connection panel names the exact failure — a fix is a config edit, never a code change.
+
+A gid is the number in a tab's own URL after `#gid=`. If you swap sheets and don't want to look them
+up, clear `fileId` and all three gids but leave `pubKey` set: the site will then read the tab list
+off the published page and work the gids out itself.
 
 ### 4. Build the Google Form
 

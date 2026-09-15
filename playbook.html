@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play Diagram Builder</title>
+<meta name="description" content="Drag players on a basketball court, draw movement, and save plays as editable data.">
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏀</text></svg>">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html">🏀 Coach<span>Tools</span></a>
+    <nav class="site-nav">
+      <a href="index.html">Home</a>
+      <a href="stats.html">Stats</a>
+      <a href="playbook.html" aria-current="page">Playbook</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Play Diagram Builder</h1>
+  <p class="lede">Drop players on the floor, drag them into position, and draw what happens next.
+    Every play is saved as editable data, so you can come back and change one cut without redrawing
+    the whole thing.</p>
+
+  <div class="pb-layout">
+    <!-- ---------------- court column ---------------- -->
+    <div class="pb-main">
+      <div class="card pb-card">
+        <div class="pb-tools" role="toolbar" aria-label="Drawing tools">
+          <div class="segmented" role="group" aria-label="Tool">
+            <button type="button" data-tool="select" aria-pressed="true" title="Select and drag (V)">Select</button>
+            <button type="button" data-tool="cut" aria-pressed="false" title="Cut — solid arrow (C)">Cut</button>
+            <button type="button" data-tool="pass" aria-pressed="false" title="Pass — dashed arrow (P)">Pass</button>
+            <button type="button" data-tool="dribble" aria-pressed="false" title="Dribble — squiggle (D)">Dribble</button>
+            <button type="button" data-tool="screen" aria-pressed="false" title="Screen — bar end (S)">Screen</button>
+            <button type="button" data-tool="text" aria-pressed="false" title="Text label (T)">Text</button>
+          </div>
+
+          <span class="spacer"></span>
+
+          <button type="button" class="btn btn-icon" id="pb-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+          <button type="button" class="btn btn-icon" id="pb-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+          <button type="button" class="btn" id="pb-delete" title="Delete selected (Del)">Delete</button>
+        </div>
+
+        <div class="pb-tools pb-add" role="toolbar" aria-label="Add players">
+          <span class="pb-label">Add</span>
+          <button type="button" class="btn chip off" data-add="offense" data-label="1">1</button>
+          <button type="button" class="btn chip off" data-add="offense" data-label="2">2</button>
+          <button type="button" class="btn chip off" data-add="offense" data-label="3">3</button>
+          <button type="button" class="btn chip off" data-add="offense" data-label="4">4</button>
+          <button type="button" class="btn chip off" data-add="offense" data-label="5">5</button>
+          <span class="pb-sep"></span>
+          <button type="button" class="btn chip def" data-add="defense" data-label="1">X1</button>
+          <button type="button" class="btn chip def" data-add="defense" data-label="2">X2</button>
+          <button type="button" class="btn chip def" data-add="defense" data-label="3">X3</button>
+          <button type="button" class="btn chip def" data-add="defense" data-label="4">X4</button>
+          <button type="button" class="btn chip def" data-add="defense" data-label="5">X5</button>
+          <span class="pb-sep"></span>
+          <button type="button" class="btn chip" data-add="ball">Ball</button>
+          <button type="button" class="btn chip" data-add="cone">Cone</button>
+          <button type="button" class="btn chip" data-add="coach">Coach</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="pb-clear">Clear frame</button>
+        </div>
+
+        <div class="court-wrap">
+          <svg id="court" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Basketball court diagram"></svg>
+        </div>
+
+        <p class="small muted pb-hint" id="pb-hint"></p>
+
+        <!-- ---------------- frames ---------------- -->
+        <div class="pb-frames">
+          <span class="pb-label">Steps</span>
+          <div class="frame-chips" id="frame-chips"></div>
+          <button type="button" class="btn btn-icon" id="fr-prev" title="Previous step" aria-label="Previous step">‹</button>
+          <button type="button" class="btn btn-icon" id="fr-next" title="Next step" aria-label="Next step">›</button>
+          <button type="button" class="btn" id="fr-add" title="Add an empty step">+ Step</button>
+          <button type="button" class="btn" id="fr-dup" title="Copy this step's positions into a new one">Continue</button>
+          <button type="button" class="btn" id="fr-del">Delete step</button>
+          <label class="pb-check"><input type="checkbox" id="fr-ghost" checked> Show previous step</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- side column ---------------- -->
+    <aside class="pb-side">
+      <div class="card">
+        <div class="pb-side-head">
+          <h2>This play</h2>
+          <span class="pill" id="save-state">—</span>
+        </div>
+
+        <div class="field">
+          <label for="p-name">Name</label>
+          <input type="text" id="p-name" placeholder="Horns Flare">
+        </div>
+        <div class="field">
+          <label for="p-category">Category</label>
+          <input type="text" id="p-category" list="category-list" placeholder="Set, BLOB, Press break…">
+          <datalist id="category-list"></datalist>
+        </div>
+        <div class="field">
+          <label for="p-tags">Tags <span class="muted">comma separated</span></label>
+          <input type="text" id="p-tags" placeholder="horns, ATO, vs zone">
+        </div>
+        <div class="field">
+          <label for="p-notes">Notes</label>
+          <textarea id="p-notes" rows="3" placeholder="Coaching points, reads, counters…"></textarea>
+        </div>
+
+        <div class="pb-two">
+          <div class="field">
+            <label for="p-court">Court</label>
+            <select id="p-court">
+              <option value="half">Half court</option>
+              <option value="full">Full court</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="p-preset">Lines</label>
+            <select id="p-preset"></select>
+          </div>
+        </div>
+
+        <div class="pb-actions">
+          <button type="button" class="btn btn-primary" id="p-new">New play</button>
+          <button type="button" class="btn" id="p-dup">Duplicate</button>
+          <button type="button" class="btn" id="p-export">Export</button>
+          <button type="button" class="btn danger" id="p-delete">Delete</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="pb-side-head">
+          <h2>Playbook</h2>
+          <span class="pill" id="lib-count">0</span>
+        </div>
+
+        <div class="field">
+          <label for="lib-search">Search</label>
+          <input type="search" id="lib-search" placeholder="Name, tag, note, player…">
+        </div>
+        <div class="pb-two">
+          <div class="field">
+            <label for="lib-category">Category</label>
+            <select id="lib-category"><option value="">All</option></select>
+          </div>
+          <div class="field">
+            <label for="lib-tag">Tag</label>
+            <select id="lib-tag"><option value="">All</option></select>
+          </div>
+        </div>
+
+        <ul class="play-list" id="play-list"></ul>
+
+        <div class="pb-actions">
+          <button type="button" class="btn" id="lib-export">Export all</button>
+          <button type="button" class="btn" id="lib-import">Import…</button>
+          <input type="file" id="lib-file" accept="application/json,.json" hidden>
+        </div>
+      </div>
+
+      <div class="card" id="team-card" hidden>
+        <div class="pb-side-head">
+          <h2>Team playbook</h2>
+          <span class="pill" id="team-count">0</span>
+        </div>
+        <p class="small muted">Committed to the repo in <code>plays/</code> — the same on every
+          device. Copy one into your own playbook to edit it.</p>
+        <ul class="play-list" id="team-list"></ul>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script type="module" src="assets/js/playbook.js"></script>
+</body>
+</html>

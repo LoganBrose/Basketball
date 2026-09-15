@@ -2,36 +2,46 @@
  * The only file you need to edit.
  *
  * See README.md for where each value comes from. If neither `fileId` nor the
- * per-tab `gid`s are filled in, the site falls back to the bundled sample data
- * in data/sample/ and says so on the page.
+ * per-tab `gid`s are filled in, the site tries to read the tab list off the
+ * published page, and failing that falls back to the sample data in data/sample/.
  */
 
 export const CONFIG = {
+  /**
+   * Which tab the stats come from.
+   *
+   *   'statslog'  — the StatsLog tab, typed into the sheet by hand.
+   *   'responses' — the Google Form's own responses tab.
+   *
+   * Switch this to 'responses' once the Form exists; that's the whole change.
+   */
+  statsSource: 'statslog',
+
   sheet: {
     /**
-     * From your "Publish to web" URL:
+     * From the *editing* URL: docs.google.com/spreadsheets/d/<fileId>/edit
+     * With this set, tabs are addressed by name — nothing breaks when a tab is
+     * moved or re-created. Requires the sheet's General access to be
+     * "Anyone with the link".
+     */
+    fileId: '1RRmiDGS5j4IWGc5B6BnC7aNXMzZLbtOTSLaIKkqIc8s',
+
+    /**
+     * From the "Publish to web" URL:
      *   docs.google.com/spreadsheets/d/e/<pubKey>/pubhtml
-     * Used with the per-tab `gid`s below.
+     * Used with the gids below as the fallback when the fileId route is blocked.
      */
     pubKey: '2PACX-1vTIRdvaoK3plhKwEcOT6WVW3RGxAqjaQM7cahSE7Kmt1ce5yej-oriu6_hpQA6PYvPbYOojBRS3dCKR',
 
     /**
-     * Optional but preferred. The file ID from the *editing* URL:
-     *   docs.google.com/spreadsheets/d/<fileId>/edit
-     * With this set, tabs are addressed by name, so you never have to look up a
-     * gid and nothing breaks when a tab is moved. Requires the sheet's General
-     * access to be "Anyone with the link".
-     */
-    fileId: '',
-
-    /**
-     * Tab names (used by the fileId strategy) and gids (used by the pubKey
-     * strategy). Read a gid from the tab's URL: ...#gid=123456789
+     * Tab names (used with fileId) and gids (used with pubKey). A gid is the
+     * number in the tab's own URL after `#gid=`.
      */
     tabs: {
-      players: { name: 'Players', gid: '' },
-      games: { name: 'Games', gid: '' },
-      // The Google Form's own responses tab — this is the stats source.
+      players: { name: 'Players', gid: '335787751' },
+      games: { name: 'Games', gid: '761754105' },
+      statslog: { name: 'StatsLog', gid: '2114409932' },
+      // Created by Google when you wire up the Form; no gid until then.
       responses: { name: 'Form Responses 1', gid: '' },
     },
   },
@@ -51,10 +61,11 @@ export const CONFIG = {
    */
   nameDisplay: 'full',
 
-  /** Bundled fallback data, used when the sheet isn't configured yet. */
+  /** Bundled fallback data, used when the sheet can't be reached. */
   sample: {
     players: 'data/sample/players.csv',
     games: 'data/sample/games.csv',
+    statslog: 'data/sample/statslog.csv',
     responses: 'data/sample/responses.csv',
   },
 };

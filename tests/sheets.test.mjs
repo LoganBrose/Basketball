@@ -49,6 +49,40 @@ test('each tab declares its own key header', () => {
   assert.equal(SCHEMAS.players.key, 'player id');
   assert.equal(SCHEMAS.games.key, 'game id');
   assert.equal(SCHEMAS.responses.key, 'player');
+  assert.equal(SCHEMAS.statslog.key, 'stat id');
+});
+
+/** The StatsLog tab as the sheet ships it: preamble, then (auto) lookup columns. */
+const STATSLOG_CSV = [
+  'Stats Log — one row per player per game,,,,,,,',
+  '"Legend: yellow cells = type your data.",,,,,,,',
+  ',,,,,,,',
+  'Stat ID,Game ID,Player ID,Player Name (auto),Home/Away (auto),Points,FGM,FGA',
+  'EX1,G01,P1,Example Player,Home,10,4,8',
+  'S01,G01,P1,John Smith,Home,15,6,11',
+].join('\n');
+
+test('StatsLog parses with Stat ID as its key and Player ID as the player', () => {
+  const out = parseTab(STATSLOG_CSV, SCHEMAS.statslog);
+  assert.equal(out.error, null);
+  assert.equal(out.headerRow, 3);
+  assert.equal(out.records.length, 1); // the EX row is skipped
+  assert.equal(out.records[0].player, 'P1');
+  assert.equal(out.records[0].game, 'G01');
+  assert.equal(out.records[0].points, '15');
+});
+
+test('the (auto) lookup columns are reported as unused, not mistaken for data', () => {
+  // The site joins Players and Games by ID itself, so these are surplus.
+  const out = parseTab(STATSLOG_CSV, SCHEMAS.statslog);
+  assert.ok(out.unknownColumns.includes('Player Name (auto)'));
+  assert.ok(out.unknownColumns.includes('Home/Away (auto)'));
+});
+
+test('the Form key does not match the StatsLog tab, and vice versa', () => {
+  // Each source must only ever parse its own tab.
+  assert.equal(findHeaderRow(parseCSV(STATSLOG_CSV), SCHEMAS.responses.key), -1);
+  assert.equal(findHeaderRow(parseCSV(RESPONSES_CSV), SCHEMAS.statslog.key), -1);
 });
 
 test('skips blank keys and EX-prefixed example rows, structurally', () => {
