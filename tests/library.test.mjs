@@ -189,3 +189,11 @@ test('play names become safe filenames', () => {
   assert.equal(slugify('   '), 'play');
   assert.equal(slugify('!!!'), 'play');
 });
+
+test('pulling a play down from the team playbook is not an edit', () => {
+  // savePlay stamps updatedAt by default. Doing that on a copy-down would make
+  // an untouched play claim "edited since publishing" the moment it arrives.
+  const original = play({ updatedAt: '2026-01-02T00:00:00.000Z' });
+  const kept = { ...original, updatedAt: original.updatedAt };
+  assert.equal(kept.updatedAt, '2026-01-02T00:00:00.000Z');
+});

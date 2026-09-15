@@ -62,9 +62,17 @@ export const listPlays = () => readStore();
 
 export const getPlay = (id) => readStore().find((p) => p.id === id) || null;
 
-export function savePlay(play) {
+/**
+ * @param {Object} play
+ * @param {{touch?: boolean}} opts `touch: false` keeps the existing
+ *   `updatedAt` — used when copying a play down from the team playbook, which
+ *   is not an edit and must not look like one.
+ */
+export function savePlay(play, { touch = true } = {}) {
   const plays = readStore();
-  const next = { ...play, updatedAt: new Date().toISOString() };
+  const next = touch
+    ? { ...play, updatedAt: new Date().toISOString() }
+    : { ...play, updatedAt: play.updatedAt || new Date().toISOString() };
   const i = plays.findIndex((p) => p.id === play.id);
   if (i === -1) plays.push(next);
   else plays[i] = next;
@@ -259,22 +267,42 @@ export function slugify(name) {
  * A missing index is normal — it just means no team plays are committed yet.
  */
 export async function loadTeamPlaybook() {
+  // no-store, not no-cache: a phone must not serve a stale index after a
+  // deploy, and "revalidate" isn't the same as "don't reuse".
+  const bust = () => `?t=${Date.now()}`;
+
   try {
-    const res = await fetch('plays/index.json', { cache: 'no-cache' });
-    if (!res.ok) return { plays: [], error: null };
+    const res = await fetch('plays/index.json' + bust(), { cache: 'no-store' });
+    if (!res.ok) {
+      // A 404 and "nothing published yet" are different problems with
+      // different fixes, so they must not look the same.
+      return { plays: [], error: `HTTP ${res.status} loading plays/index.json` };
+    }
+
     const index = await res.json();
     const entries = Array.isArray(index.plays) ? index.plays : [];
+    const failed = [];
 
     const plays = await Promise.all(entries.map(async (entry) => {
+      const path = `plays/${entry.file}`;
       try {
-        const r = await fetch(`plays/${entry.file}`, { cache: 'no-cache' });
-        return r.ok ? normalizePlay(await r.json()) : null;
-      } catch {
+        const r = await fetch(path + bust(), { cache: 'no-store' });
+        if (!r.ok) {
+          failed.push(`${entry.file} (HTTP ${r.status})`);
+          return null;
+        }
+        // `path` is what publishing needs in order to edit this exact file.
+        return { ...normalizePlay(await r.json()), path };
+      } catch (err) {
+        failed.push(`${entry.file} (${err.message})`);
         return null;
       }
     }));
 
-    return { plays: plays.filter(Boolean), error: null };
+    return {
+      plays: plays.filter(Boolean),
+      error: failed.length ? `Could not load ${failed.join(', ')}` : null,
+    };
   } catch (err) {
     return { plays: [], error: err.message };
   }
