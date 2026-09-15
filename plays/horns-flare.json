@@ -1,0 +1,261 @@
+{
+  "schema": 1,
+  "id": "team-horns-flare",
+  "name": "Horns Flare",
+  "category": "Set",
+  "tags": [
+    "horns",
+    "ATO",
+    "3pt"
+  ],
+  "notes": "1 enters to the elbow, 4 flares 1 to the weak side. First look is the skip for three; if the defense jumps it, 4 slips to the rim.",
+  "courtType": "half",
+  "preset": "hs",
+  "youtube": null,
+  "frames": [
+    {
+      "label": "Horns",
+      "tokens": [
+        {
+          "id": "h1",
+          "kind": "offense",
+          "label": "1",
+          "x": 25,
+          "y": 28,
+          "hasBall": true
+        },
+        {
+          "id": "h4",
+          "kind": "offense",
+          "label": "4",
+          "x": 19,
+          "y": 19,
+          "hasBall": false
+        },
+        {
+          "id": "h5",
+          "kind": "offense",
+          "label": "5",
+          "x": 31,
+          "y": 19,
+          "hasBall": false
+        },
+        {
+          "id": "h2",
+          "kind": "offense",
+          "label": "2",
+          "x": 46,
+          "y": 6,
+          "hasBall": false
+        },
+        {
+          "id": "h3",
+          "kind": "offense",
+          "label": "3",
+          "x": 4,
+          "y": 6,
+          "hasBall": false
+        }
+      ],
+      "arrows": [
+        {
+          "id": "ha1",
+          "kind": "pass",
+          "from": {
+            "x": 26,
+            "y": 27
+          },
+          "to": {
+            "x": 30.5,
+            "y": 20.5
+          },
+          "ctrl": null
+        }
+      ],
+      "texts": [
+        {
+          "id": "ht1",
+          "x": 25,
+          "y": 33,
+          "text": "Enter to elbow"
+        }
+      ]
+    },
+    {
+      "label": "Flare screen",
+      "tokens": [
+        {
+          "id": "f1",
+          "kind": "offense",
+          "label": "1",
+          "x": 25,
+          "y": 28,
+          "hasBall": false
+        },
+        {
+          "id": "f4",
+          "kind": "offense",
+          "label": "4",
+          "x": 19,
+          "y": 19,
+          "hasBall": false
+        },
+        {
+          "id": "f5",
+          "kind": "offense",
+          "label": "5",
+          "x": 31,
+          "y": 19,
+          "hasBall": true
+        },
+        {
+          "id": "f2",
+          "kind": "offense",
+          "label": "2",
+          "x": 46,
+          "y": 6,
+          "hasBall": false
+        },
+        {
+          "id": "f3",
+          "kind": "offense",
+          "label": "3",
+          "x": 4,
+          "y": 6,
+          "hasBall": false
+        }
+      ],
+      "arrows": [
+        {
+          "id": "fa1",
+          "kind": "screen",
+          "from": {
+            "x": 19,
+            "y": 20
+          },
+          "to": {
+            "x": 22,
+            "y": 26
+          },
+          "ctrl": null
+        },
+        {
+          "id": "fa2",
+          "kind": "cut",
+          "from": {
+            "x": 24,
+            "y": 29
+          },
+          "to": {
+            "x": 12,
+            "y": 25
+          },
+          "ctrl": {
+            "x": 18,
+            "y": 31
+          }
+        }
+      ],
+      "texts": [
+        {
+          "id": "ft1",
+          "x": 12,
+          "y": 30,
+          "text": "1 flares"
+        }
+      ]
+    },
+    {
+      "label": "Skip",
+      "tokens": [
+        {
+          "id": "s1",
+          "kind": "offense",
+          "label": "1",
+          "x": 12,
+          "y": 25,
+          "hasBall": false
+        },
+        {
+          "id": "s4",
+          "kind": "offense",
+          "label": "4",
+          "x": 22,
+          "y": 26,
+          "hasBall": false
+        },
+        {
+          "id": "s5",
+          "kind": "offense",
+          "label": "5",
+          "x": 31,
+          "y": 19,
+          "hasBall": true
+        },
+        {
+          "id": "s2",
+          "kind": "offense",
+          "label": "2",
+          "x": 46,
+          "y": 6,
+          "hasBall": false
+        },
+        {
+          "id": "s3",
+          "kind": "offense",
+          "label": "3",
+          "x": 4,
+          "y": 6,
+          "hasBall": false
+        }
+      ],
+      "arrows": [
+        {
+          "id": "sa1",
+          "kind": "pass",
+          "from": {
+            "x": 30,
+            "y": 19.5
+          },
+          "to": {
+            "x": 13.5,
+            "y": 24.5
+          },
+          "ctrl": {
+            "x": 22,
+            "y": 15
+          }
+        },
+        {
+          "id": "sa2",
+          "kind": "cut",
+          "from": {
+            "x": 22,
+            "y": 27
+          },
+          "to": {
+            "x": 25,
+            "y": 9
+          },
+          "ctrl": null
+        }
+      ],
+      "texts": [
+        {
+          "id": "st1",
+          "x": 12,
+          "y": 30,
+          "text": "Shot"
+        },
+        {
+          "id": "st2",
+          "x": 33,
+          "y": 11,
+          "text": "4 slips"
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-09-15T00:00:00.000Z",
+  "updatedAt": "2026-09-15T00:00:00.000Z"
+}

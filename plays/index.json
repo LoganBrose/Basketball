@@ -1,4 +1,20 @@
 {
-  "generated": "2026-09-15T18:27:58.408Z",
-  "plays": []
+  "generated": "2026-09-15T18:49:34.678Z",
+  "plays": [
+    {
+      "file": "horns-flare.json",
+      "id": "team-horns-flare",
+      "name": "Horns Flare",
+      "category": "Set",
+      "tags": [
+        "horns",
+        "ATO",
+        "3pt"
+      ],
+      "notes": "1 enters to the elbow, 4 flares 1 to the weak side. First look is the skip for three; if the defense jumps it, 4 slips to the rim.",
+      "courtType": "half",
+      "frames": 3,
+      "updatedAt": "2026-09-15T00:00:00.000Z"
+    }
+  ]
 }

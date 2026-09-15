@@ -6,7 +6,7 @@ dependencies.
 | Tool | Status |
 |---|---|
 | **Stats Tracker** — per-player season stats from a published Google Sheet, filterable by player and home/away | Ready |
-| **Play Diagram Builder** — drag players on a court, draw movement, save plays as editable data | Next phase |
+| **Play Diagram Builder** — drag players on a court, draw movement, save plays as editable data | Ready |
 
 ---
 
@@ -161,6 +161,54 @@ Listed in the Connection panel, never dropped:
 
 ---
 
+## Play diagram builder
+
+Open `playbook.html`. Everything autosaves as you work — there's no Save button to forget.
+
+**Laying out a set.** The *Add* row drops a player at their usual spot (1 at the top, 4 and 5 on
+the blocks, and so on), so a set takes seconds rather than five separate drags. Then drag anyone
+where you want them; positions snap to a half-foot. Double-click a player to relabel them, and use
+the arrow keys to nudge a selected player.
+
+**Drawing movement.** Pick a tool and drag from where the action starts to where it ends:
+
+| Tool | Looks like | Means |
+|---|---|---|
+| Cut | solid arrow | a player moving |
+| Pass | dashed arrow | the ball moving |
+| Dribble | squiggle | the ball-handler driving |
+| Screen | line with a bar | where the screen is set, and which way the screener faces |
+
+Click an arrow to select it, then drag either end to adjust it — or drag the **middle handle to
+curve it**, which is how you draw a flare or a curl that isn't a straight line.
+
+Keyboard: `V` select, `C` cut, `P` pass, `D` dribble, `S` screen, `T` text, `Ctrl+Z` / `Ctrl+Shift+Z`
+undo and redo, `Delete` removes the selection.
+
+**Steps.** A play is a sequence, not one picture. **Continue** adds a step with everyone still where
+they finished, ready for the next action; **+ Step** starts an empty one. The previous step shows
+through faded so you can see what moved — untick *Show previous step* to hide it. Double-click a
+step chip to rename it.
+
+**Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines.
+The court is drawn to scale in feet, so a player standing at the elbow is really at the elbow.
+
+### Your playbook vs the team playbook
+
+Plays you draw are saved in **your browser**, on that device. Search covers names, categories, tags,
+notes and even player labels.
+
+To share plays across devices or with your staff, use the **team playbook**: export a play, commit
+the file to `plays/`, and push. The deploy regenerates `plays/index.json` automatically — you never
+hand-edit an index. Team plays appear read-only on every device; opening one copies it into your own
+playbook so the shared version stays put. `plays/horns-flare.json` is a worked example of the
+format; delete it whenever you like.
+
+Because plays are JSON rather than images, **Export** gives you a file you can diff, edit by hand,
+or re-import years later — and one bad file never takes the rest of the library down with it.
+
+---
+
 ## Privacy
 
 **A published Google Sheet and a GitHub Pages site are both readable by anyone with the link.**
@@ -195,6 +243,9 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/sheets.js` | endpoints, header detection, caching |
 | `assets/js/model.js` | dedupe, DNP, sanity checks, aggregation — pure and tested |
 | `assets/js/stats.js` | the stats page |
+| `assets/js/court.js` | court geometry in feet |
+| `assets/js/library.js` | play storage, search, import/export — pure and tested |
+| `assets/js/playbook.js` | the diagram editor |
 
 Stats are cached in `localStorage` after each successful load, so the page renders instantly on a
 slow connection and still shows the last known numbers if the sheet can't be reached.
