@@ -769,3 +769,59 @@ tbody tr.selected-row td:first-child { background: var(--accent-soft); font-weig
 .stat.skeleton .v { color: transparent; }
 
 #dash .section-label { margin-top: 22px; }
+
+/* ---- lineup selector ---- */
+
+.pb-lineup { align-items: center; }
+.lineup-slots { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; }
+
+.lineup-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lineup-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex: none;
+}
+
+.lineup-slot select {
+  font-size: 0.85rem;
+  padding: 5px 7px;
+  width: auto;
+  min-width: 108px;
+  max-width: 168px;
+}
+
+.lineup-slot select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* The name under a token: legible over court lines, never a hit target. */
+.tok-name {
+  fill: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 0.3;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.token.ghost .tok-name { opacity: 0.5; }
+
+@media (max-width: 620px) {
+  .lineup-slots { width: 100%; }
+  .lineup-slot select { min-width: 0; flex: 1 1 auto; }
+}
+
+.issue-list li .muted { font-size: 0.92em; margin-top: 1px; }
