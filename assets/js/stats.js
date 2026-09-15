@@ -352,12 +352,16 @@ function renderConnection() {
 
   issueBlock(body, 'Duplicate rows replaced by a later row', issues.superseded, (s) =>
     `Row ${s.sheetRow} replaced by row ${s.supersededBy} — ${s.gameId}, ${s.playerId}`);
-  issueBlock(body, 'Rows with no matching game', issues.unmatchedGames, (i) => `Row ${i.sheetRow}: ${i.detail}`);
-  issueBlock(body, 'Rows with no matching player', issues.unmatchedPlayers, (i) => `Row ${i.sheetRow}: ${i.detail}`);
+  issueBlock(body, 'Rows with no matching game', issues.unmatchedGames,
+    (i) => `Row ${i.sheetRow}: ${i.detail}`, (i) => i.detail);
+  issueBlock(body, 'Rows with no matching player', issues.unmatchedPlayers,
+    (i) => `Row ${i.sheetRow}: ${i.detail}`, (i) => i.detail);
   issueBlock(body, 'Dates that could not be read', issues.invalidDates, (i) =>
     `${i.gameId}: "${i.value}" — use M/D/YYYY or YYYY-MM-DD`);
-  issueBlock(body, 'Rows worth double-checking', issues.sanityFlags, (f) =>
-    `Row ${f.sheetRow} — ${f.player}, ${f.game}: ${f.flags.join('; ')}`);
+  // The same mistake copied down a column is one problem, not seventy.
+  issueBlock(body, 'Rows worth double-checking', issues.sanityFlags,
+    (f) => `Row ${f.sheetRow} — ${f.player}, ${f.game}: ${f.flags.join('; ')}`,
+    (f) => f.flags.join('; '));
   issueBlock(body, 'Team Score doesn’t match the logged points', mismatches, (m) =>
     `${m.gameId} vs ${m.opponent}: Games tab says ${m.recorded}, StatsLog rows add up to ${m.logged}`);
 
@@ -419,11 +423,44 @@ function tabReport(name, m) {
   return block;
 }
 
-function issueBlock(parent, title, items, format) {
+/**
+ * List issues, collapsing repeats.
+ *
+ * One mistake copied down a whole column produces one flag per row. Printing
+ * 70 identical lines buries every other finding, so identical messages are
+ * grouped and counted, with a few example rows named.
+ */
+function issueBlock(parent, title, items, format, groupBy) {
   if (!items || items.length === 0) return;
   parent.append(el('h3', { text: `${title} (${items.length})` }));
   const ul = el('ul', { class: 'issue-list small' });
-  for (const item of items) ul.append(el('li', { text: format(item) }));
+
+  if (!groupBy) {
+    for (const item of items) ul.append(el('li', { text: format(item) }));
+    parent.append(ul);
+    return;
+  }
+
+  const groups = new Map();
+  for (const item of items) {
+    const key = groupBy(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+
+  for (const [key, group] of groups) {
+    if (group.length === 1) {
+      ul.append(el('li', { text: format(group[0]) }));
+      continue;
+    }
+    const li = el('li');
+    li.append(el('strong', { text: `${group.length} rows: ` }));
+    li.append(document.createTextNode(key));
+    const rows = group.slice(0, 4).map((g) => g.sheetRow).join(', ');
+    const more = group.length > 4 ? `, and ${group.length - 4} more` : '';
+    li.append(el('div', { class: 'muted', text: `rows ${rows}${more}` }));
+    ul.append(li);
+  }
   parent.append(ul);
 }
 
