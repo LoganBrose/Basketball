@@ -3,36 +3,23 @@
 Two static basketball coaching tools, deployable to GitHub Pages. No server, no build step, no
 dependencies.
 
-| Tool | Status |
+| Tool | What it does |
 |---|---|
-| **Stats Tracker** — per-player season stats from a published Google Sheet, filterable by player and home/away | Ready |
-| **Play Diagram Builder** — drag players on a court, draw movement, save plays as editable data | Ready |
+| **Stats Tracker** | Pick any players to see their combined numbers, split home vs away, and open a game for the full box score |
+| **Play Diagram Builder** | Drag players on a court, draw movement across multiple steps, save plays as editable data |
 
 ---
 
 ## How the stats tracker works
 
 ```
-you type rows      ─▶  StatsLog tab        ─┐
-   — or —                                   ├─ published CSV ─▶  stats.html
-Google Form  ─▶  Form responses tab        ─┘
-                                            ▲
-                    Players + Games tabs supply names, dates, opponents
+you type rows  ─▶  StatsLog tab  ──published CSV──▶  index.html + stats.html
+                        ▲
+     Players + Games tabs supply names, dates, opponents
 ```
 
-The site reads three tabs and does the joins itself in your browser. It never writes anything.
-
-**One config line picks the stats source**, and only one is ever read — so there's never a question
-of which copy is right:
-
-```js
-statsSource: 'statslog'    // the StatsLog tab you type into      ← current setting
-statsSource: 'responses'   // the Google Form's responses tab
-```
-
-It currently reads **`StatsLog`**, because the Form doesn't exist yet. Build the Form (step 4),
-then flip that one line. Every rule below — dedupe, DNP, sanity checks — works identically either
-way.
+Stats are typed straight into the **StatsLog** tab. There is no Google Form. The site reads three
+tabs, joins them by ID in your browser, and **never writes anything**.
 
 ---
 
@@ -40,135 +27,145 @@ way.
 
 ### 1. Sheet tabs
 
-Three tabs matter. The site finds the header row by scanning for a key column, so title and legend
-rows above the headers are fine and can be edited freely.
+Three tabs matter. Each has title and legend rows above its header — that's fine, the site finds the
+header by scanning for a key column, so you can edit those lines freely.
 
 | Tab | Key column | Columns the site reads |
 |---|---|---|
-| `Players` | `Player ID` | `Player ID`, `Full Name`, `Jersey Number`, `Position` |
-| `Games` | `Game ID` | `Game ID`, `Date`, `Opponent`, `Home/Away` |
 | `StatsLog` | `Stat ID` | `Game ID`, `Player ID`, `Points`, `Rebounds`, `Assists`, `Steals`, `Blocks`, `Turnovers`, `FGM`, `FGA`, `3PM`, `3PA`, `FTM`, `FTA`, `Fouls`, `Notes` |
-| Form responses | `Player` | the same stat columns, plus `Game` and `Player` dropdown labels |
-
-`PlayerSummary` isn't read at all — the site reimplements it, so you get the same totals without
-touching the sheet.
+| `Players` | `Player ID` | `Full Name`, `Jersey Number`, `Position` |
+| `Games` | `Game ID` | `Date`, `Opponent`, `Home/Away`, and optionally `Team Score`, `Opponent Score` |
 
 Notes:
 
-- **Example rows must use an ID starting with `EX`** (`EX1`, `EX2`, …). That's how the site tells a
-  sample row from a real one — it never guesses from the contents, so a real player is never
-  dropped for resembling the example.
-- `Date` may be `M/D/YYYY` or `YYYY-MM-DD`.
-- `Home/Away` should be exactly `Home` or `Away`.
-- The `(auto)` lookup columns in `StatsLog` aren't needed — the site joins `Players` and `Games` by
-  ID itself and lists those columns as unused in the Connection panel. They do no harm; keep them if
-  you like reading the sheet directly.
+- **`Stat ID` must not be blank**, but it does *not* have to be unique. The identity of a row is
+  **(Game ID, Player ID)** — see "How stats are interpreted" below.
+- The four `(auto)` lookup columns in `StatsLog` are ignored; the site joins `Players` and `Games`
+  by ID itself. They're listed as unused in the Connection panel and do no harm.
+- Example rows must use an ID starting with **`EX`** (`EX1`, `EX2`…). That's how a sample row is told
+  from a real one — never by its contents, so a real player is never dropped for resembling it.
+- `Date` may be `M/D/YYYY` or `YYYY-MM-DD`. `Home/Away` should be exactly `Home` or `Away`.
+- **`Team Score` and `Opponent Score` are optional.** Fill in *both* for a game and the home page
+  shows a win-loss record and average margin. Leave them blank and those tiles simply don't appear.
+- `PlayerSummary` isn't read at all — the site reimplements it.
 
 ### 2. Publish the sheet
 
 **File → Share → Publish to web.**
 
-> **If you publish *selected tabs* rather than the entire document, publish `Players`, `Games` and
-> whichever tab `statsSource` points at** — today `StatsLog`, later the Form responses tab. Miss the
-> stats tab and the site loads your roster and schedule and shows no stats at all.
+> **If you publish *selected tabs* rather than the entire document, you must include all three:
+> `StatsLog`, `Players` and `Games`.** Miss `StatsLog` and the site shows a roster and a schedule
+> with no stats; miss `Players` or `Games` and the stat rows have nothing to join against.
 
-This matters only for the `pubKey` route; the `fileId` route uses link-sharing instead. Publishing
-is also where the propagation delay comes from: **published CSVs can take up to about 5 minutes to
-reflect a new row.** A stat you just entered may not appear on the next
-refresh. The site repeats this note next to the last-refresh time in the Connection panel, so a
-slow update is never mistaken for a broken site.
+Publishing is where the delay comes from: **published CSVs can take up to about 5 minutes to reflect
+an edit.** A stat you just typed may not appear on the next refresh. The Connection panel repeats
+this next to the last refresh time, so a slow update is never mistaken for a broken site.
 
 ### 3. Point the site at your sheet — `assets/js/config.js`
 
-**This is already filled in** with your file ID and the three tab gids, so there is nothing to do
-here unless you swap sheets. Two routes are configured and tried in order, so one failing doesn't
-take the site down:
+Already filled in. Two routes are configured and tried in order, so one failing doesn't take the
+site down:
 
 ```js
 fileId: '1RRmiDGS5j4IWGc5B6BnC7aNXMzZLbtOTSLaIKkqIc8s'   // tabs addressed by name
 pubKey: '2PACX-1vTIRdv…'                                  // tabs addressed by gid
 ```
 
-The `fileId` route needs the sheet's General access set to **"Anyone with the link"**. The `pubKey`
-route needs the tabs published (step 2). If neither works, the site falls back to the bundled sample
-data and the Connection panel names the exact failure — a fix is a config edit, never a code change.
+| | Needs | Fix if it fails |
+|---|---|---|
+| `fileId` route | Sheet's General access set to **"Anyone with the link"** | Change the sharing setting, or clear `fileId` to force the gid route |
+| `pubKey` route | The three tabs **published to web** (step 2) | Publish them, or correct the gids below |
 
-A gid is the number in a tab's own URL after `#gid=`. If you swap sheets and don't want to look them
-up, clear `fileId` and all three gids but leave `pubKey` set: the site will then read the tab list
-off the published page and work the gids out itself.
+**A gid is the number after `#gid=` in the URL while that tab is open.** The current values:
 
-### 4. Build the Google Form
-
-One question per stat, plus two dropdowns. Title each question **exactly** as the column name so the
-response headers line up: `Game`, `Player`, `Points`, `Rebounds`, `Assists`, `Steals`, `Blocks`,
-`Turnovers`, `FGM`, `FGA`, `3PM`, `3PA`, `FTM`, `FTA`, `Fouls`, `Notes`.
-
-**Set every stat question to response validation → Number → "Whole number" → "Greater than or equal
-to" 0.** Catching a typo at entry is worth far more than flagging it afterwards.
-
-The `Player` and `Game` questions are **dropdowns**, so you tap instead of typing an ID:
-
-```
-Player            Game
-12 – John Smith   G01 – vs Central (9/15)
-7 – Jane Doe      G02 – at North (9/22)
-23 – Marcus Lee   G03 – vs South (9/29)
+```js
+tabs: {
+  statslog: { name: 'StatsLog', gid: '2114409932' },
+  players:  { name: 'Players',  gid: '335787751'  },
+  games:    { name: 'Games',    gid: '761754105'  },
+}
 ```
 
-The site reads the token before the dash and resolves it against `Player ID` first, then
-`Jersey Number` — so `12 – John Smith` and `P1 – John Smith` both work. En dash, em dash and plain
-hyphen are all accepted.
+If neither route works the site falls back to the bundled sample data in `data/sample/` and says so.
 
-> **Keep the dropdowns up to date by hand.** Google Forms can't read your roster, so adding a player
-> or scheduling a game means editing the dropdown options too. The stats page has a **"Form dropdown
-> options"** panel that generates both lists ready to paste — open it, copy, and replace the options
-> in the Form.
+### 4. Deploy
 
-Finally, put the Form's public link in `config.js` as `formUrl` to light up the **Log a stat** button.
+Push to the default branch. The workflow runs the unit tests, regenerates the team playbook index,
+and deploys the repo root. If Pages is set to "Deploy from branch" instead of "GitHub Actions", that
+works too — the repo is a plain static site.
 
-### 5. Deploy
+---
 
-Push to `main`. Then, **once**, set **Settings → Pages → Source** to **"GitHub Actions"** — without
-it the workflow builds and never publishes. The workflow runs the unit tests, regenerates the team
-playbook index, and deploys the repo root.
+## Reading the Connection panel
+
+At the bottom of the stats page. This is how you confirm the site is reading your sheet, and it
+names the fix for every failure.
+
+Per tab it shows:
+
+| Line | What to check |
+|---|---|
+| **Source** | `gviz (by tab name)` or `published CSV (by gid)` with an HTTP status. If it says **bundled sample data**, the sheet wasn't reachable |
+| **URL** | Exactly what was fetched — paste it into a browser tab to see what Google returns |
+| **Header row** | The sheet row the headers were found on. "not found" means the key column is missing or misspelled |
+| **Matched** | The columns it recognised, using your sheet's own spelling |
+| **Missing** | Shown **in red**. An expected column that isn't there — a missing `FGA` would otherwise read as a season of missed shots |
+| **Data rows** | How many rows it kept, and how many blank/`EX` rows it skipped |
+
+Below that, anything that didn't add up: duplicate rows replaced by a later row, rows whose Game or
+Player ID matches nothing, unreadable dates, rows worth double-checking, and any game where
+`Team Score` disagrees with the points logged in `StatsLog`.
 
 ---
 
 ## How stats are interpreted
 
-Worth knowing, because these rules decide what your averages mean:
+These rules decide what your numbers mean:
 
-- **Fixing a mistake: just submit the Form again.** For a given (Game, Player), the **last row in
-  the sheet wins**. Earlier entries are listed under "Corrected entries" in the Connection panel, so
-  a correction is visible rather than silent. Timestamps are never used for ordering — row position
-  already carries it.
-- **Did not play: leave every stat blank.** That row doesn't count toward games played, and its
-  stats count as 0. A row with any value — *including a `0`* — counts as a game played. So a
-  scoreless appearance is a game played, and a DNP is not.
-- **Averages divide by games played**, never by rows, so sitting out doesn't drag an average down.
-- **Percentages are blank, not `0.0%`, when nothing was attempted.**
+- **To fix a mistake, add a corrected row below the original.** For a given (Game ID, Player ID) the
+  **last row in the sheet wins**, and the replaced row is listed in the Connection panel so the
+  correction is visible rather than silent. `Stat ID` plays no part in this — two rows with the same
+  Stat ID but different players are two separate records, and two rows with different Stat IDs for
+  the same player in the same game are still a duplicate.
+- **Did not play: leave all 13 stat columns blank.** That row doesn't count toward games played and
+  its stats count as 0. A row with any value — *including a `0`* — counts as a game played, so a
+  scoreless appearance counts and a DNP doesn't.
+- **Per-game averages divide by the number of distinct games shown**, never by the number of rows.
+  Three players across nine games is 27 rows; dividing by 27 would understate every average.
+- **Percentages come from summed makes over summed attempts**, never from averaging per-game
+  percentages, and are blank — not `0.0%` — when nothing was attempted.
 
-### Rows the site flags (but always still counts)
+### Rows the site flags but always still counts
 
-Listed in the Connection panel, never dropped:
+`FGM > FGA` · `3PM > 3PA` · `FTM > FTA` · `3PM > FGM` · `Points ≠ 2×FGM + 3PM + FTM`
 
-- `FGM > FGA`, `3PM > 3PA`, `FTM > FTA`, `3PM > FGM`
-- `Points ≠ 2×FGM + 3PM + FTM` — only checked when at least one of `FGM`, `3PM` or `FTM` was
-  entered, so a points-only row isn't flagged for missing shooting numbers nobody filled in.
-- Rows whose Game or Player doesn't match the roster or schedule
-- A dropdown value that's ambiguous — for example a token that is one player's `Player ID` *and*
-  another player's jersey number. The site reports that rather than picking one of two real people.
+The points check only runs when at least one of `FGM`, `3PM` or `FTM` was entered, so a points-only
+row isn't flagged for missing shooting numbers nobody filled in.
+
+---
+
+## Using the stats page
+
+- **Tap player chips** to select any combination. The selection is in the URL, so a filtered view is
+  linkable and survives a reload.
+- **All / Any** decides which games are shown: *All* = games where every selected player played,
+  *Any* = games where at least one did. A DNP is not playing.
+- The summary becomes **"Combined stats for selected players"** — their individual lines added
+  together. Box scores don't record who was on the floor at the same time, so this is not a lineup
+  rating, and the page says so.
+- **Each game row shows `Team 58 · Selected 31`** when players are selected, so their contribution
+  reads against the team total at a glance.
+- **Click a game** to expand its full box score, with selected players highlighted.
 
 ---
 
 ## Play diagram builder
 
-Open `playbook.html`. Everything autosaves as you work — there's no Save button to forget.
+Open `playbook.html`. Everything autosaves as you work.
 
-**Laying out a set.** The *Add* row drops a player at their usual spot (1 at the top, 4 and 5 on
-the blocks, and so on), so a set takes seconds rather than five separate drags. Then drag anyone
-where you want them; positions snap to a half-foot. Double-click a player to relabel them, and use
-the arrow keys to nudge a selected player.
+**Laying out a set.** The *Add* row drops a player at their usual spot, so a set takes seconds. Drag
+anyone where you want them; positions snap to a half-foot. Double-click a player to relabel them;
+arrow keys nudge the selection.
 
 **Drawing movement.** Pick a tool and drag from where the action starts to where it ends:
 
@@ -179,33 +176,28 @@ the arrow keys to nudge a selected player.
 | Dribble | squiggle | the ball-handler driving |
 | Screen | line with a bar | where the screen is set, and which way the screener faces |
 
-Click an arrow to select it, then drag either end to adjust it — or drag the **middle handle to
-curve it**, which is how you draw a flare or a curl that isn't a straight line.
+Click an arrow to select it, then drag either end — or the **middle handle to curve it**, which is
+how you draw a flare or a curl.
 
-Keyboard: `V` select, `C` cut, `P` pass, `D` dribble, `S` screen, `T` text, `Ctrl+Z` / `Ctrl+Shift+Z`
-undo and redo, `Delete` removes the selection.
+Keyboard: `V` select, `C` cut, `P` pass, `D` dribble, `S` screen, `T` text, `Ctrl+Z` /
+`Ctrl+Shift+Z` undo and redo, `Delete` removes the selection.
 
-**Steps.** A play is a sequence, not one picture. **Continue** adds a step with everyone still where
-they finished, ready for the next action; **+ Step** starts an empty one. The previous step shows
-through faded so you can see what moved — untick *Show previous step* to hide it. Double-click a
-step chip to rename it.
+**Steps.** A play is a sequence. **Continue** adds a step with everyone still where they finished;
+**+ Step** starts an empty one. The previous step shows through faded. Double-click a step chip to
+rename it.
 
-**Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines.
-The court is drawn to scale in feet, so a player standing at the elbow is really at the elbow.
+**Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines,
+drawn to scale in feet.
 
 ### Your playbook vs the team playbook
 
 Plays you draw are saved in **your browser**, on that device. Search covers names, categories, tags,
-notes and even player labels.
+notes and player labels.
 
-To share plays across devices or with your staff, use the **team playbook**: export a play, commit
-the file to `plays/`, and push. The deploy regenerates `plays/index.json` automatically — you never
-hand-edit an index. Team plays appear read-only on every device; opening one copies it into your own
-playbook so the shared version stays put. `plays/horns-flare.json` is a worked example of the
-format; delete it whenever you like.
-
-Because plays are JSON rather than images, **Export** gives you a file you can diff, edit by hand,
-or re-import years later — and one bad file never takes the rest of the library down with it.
+To share plays, export one, commit the file to `plays/`, and push — the deploy regenerates
+`plays/index.json`, so you never hand-edit an index. Team plays appear read-only on every device;
+opening one copies it into your own playbook so the shared version stays put.
+`plays/horns-flare.json` is a worked example; delete it whenever you like.
 
 ---
 
@@ -220,8 +212,7 @@ nameDisplay: 'jersey'    // #12
 nameDisplay: 'initials'  // J.S.
 ```
 
-This changes what the site renders. The published sheet still contains full names, so for a roster
-of minors consider keeping the sheet unpublished-by-tab or using initials in the sheet too.
+This changes what the site renders. The published sheet still contains full names.
 
 ---
 
@@ -240,12 +231,14 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 |---|---|
 | `assets/js/config.js` | the only file you normally edit |
 | `assets/js/csv.js` | RFC 4180 CSV parsing |
-| `assets/js/sheets.js` | endpoints, header detection, caching |
-| `assets/js/model.js` | dedupe, DNP, sanity checks, aggregation — pure and tested |
+| `assets/js/sheets.js` | schemas, header detection, endpoints, caching |
+| `assets/js/model.js` | dedupe, DNP, Any/All, summaries, record — pure and tested |
+| `assets/js/data.js` | loads all three tabs once, shared by every page |
+| `assets/js/home.js` | the season dashboard |
 | `assets/js/stats.js` | the stats page |
 | `assets/js/court.js` | court geometry in feet |
 | `assets/js/library.js` | play storage, search, import/export — pure and tested |
 | `assets/js/playbook.js` | the diagram editor |
 
-Stats are cached in `localStorage` after each successful load, so the page renders instantly on a
-slow connection and still shows the last known numbers if the sheet can't be reached.
+Sheet data is cached in `localStorage` after each successful load, so pages render instantly on a
+slow connection and still show the last known numbers if the sheet can't be reached.

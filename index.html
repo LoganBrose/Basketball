@@ -22,20 +22,25 @@
 </header>
 
 <main class="wrap">
-  <h1>Coach Tools</h1>
-  <p class="lede">Two tools, no login, nothing to install. Stats come from your Google Sheet, so
-    they update the moment you submit the Form from the bench.</p>
+  <h1>Season</h1>
 
+  <section class="card" id="dash">
+    <div class="statgrid" id="dash-grid"></div>
+    <p class="small muted" id="dash-note" hidden></p>
+
+    <h2 class="section-label">Season leaders</h2>
+    <div class="statgrid" id="dash-leaders"></div>
+  </section>
+
+  <h2 class="section-label">Tools</h2>
   <div class="tools">
     <a class="tool" href="stats.html">
-      <div class="tag">Ready</div>
       <h2>Stats Tracker</h2>
-      <p>Pull up one player's season, split it home vs away, and sort any column. Logged from your
-        phone through a Google Form.</p>
+      <p>Pick any players to see their combined numbers, split home vs away, and open a game for
+        the full box score.</p>
     </a>
 
     <a class="tool" href="playbook.html">
-      <div class="tag">Ready</div>
       <h2>Play Diagram Builder</h2>
       <p>Drag players onto a court, draw cuts, passes, screens and dribbles across multiple steps,
         and save each play as editable data.</p>
@@ -43,5 +48,6 @@
   </div>
 </main>
 
+<script type="module" src="assets/js/home.js"></script>
 </body>
 </html>

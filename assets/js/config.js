@@ -1,26 +1,15 @@
 /**
  * The only file you need to edit.
  *
- * See README.md for where each value comes from. If neither `fileId` nor the
- * per-tab `gid`s are filled in, the site tries to read the tab list off the
- * published page, and failing that falls back to the sample data in data/sample/.
+ * Stats are typed straight into the StatsLog tab — there is no Google Form.
+ * See README.md for where each value comes from.
  */
 
 export const CONFIG = {
-  /**
-   * Which tab the stats come from.
-   *
-   *   'statslog'  — the StatsLog tab, typed into the sheet by hand.
-   *   'responses' — the Google Form's own responses tab.
-   *
-   * Switch this to 'responses' once the Form exists; that's the whole change.
-   */
-  statsSource: 'statslog',
-
   sheet: {
     /**
      * From the *editing* URL: docs.google.com/spreadsheets/d/<fileId>/edit
-     * With this set, tabs are addressed by name — nothing breaks when a tab is
+     * With this set, tabs are addressed by name, so nothing breaks when a tab is
      * moved or re-created. Requires the sheet's General access to be
      * "Anyone with the link".
      */
@@ -35,22 +24,14 @@ export const CONFIG = {
 
     /**
      * Tab names (used with fileId) and gids (used with pubKey). A gid is the
-     * number in the tab's own URL after `#gid=`.
+     * number after `#gid=` in the URL while that tab is open.
      */
     tabs: {
+      statslog: { name: 'StatsLog', gid: '2114409932' },
       players: { name: 'Players', gid: '335787751' },
       games: { name: 'Games', gid: '761754105' },
-      statslog: { name: 'StatsLog', gid: '2114409932' },
-      // Created by Google when you wire up the Form; no gid until then.
-      responses: { name: 'Form Responses 1', gid: '' },
     },
   },
-
-  /**
-   * Your Google Form's public link. Powers the "Log a stat" button, which is
-   * how stats get entered from a phone. Leave blank to hide the button.
-   */
-  formUrl: '',
 
   /**
    * How players are shown: 'full' | 'jersey' | 'initials'.
@@ -63,9 +44,8 @@ export const CONFIG = {
 
   /** Bundled fallback data, used when the sheet can't be reached. */
   sample: {
+    statslog: 'data/sample/statslog.csv',
     players: 'data/sample/players.csv',
     games: 'data/sample/games.csv',
-    statslog: 'data/sample/statslog.csv',
-    responses: 'data/sample/responses.csv',
   },
 };

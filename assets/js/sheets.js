@@ -12,12 +12,19 @@ import { parseCSV, normalizeHeader } from './csv.js';
  * Canonical field -> accepted header spellings (already normalized).
  *
  * `key` is the header the scan looks for to locate the real header row. It is
- * declared per tab and matched exactly, so `Player ID` on the Players tab never
- * satisfies the Form tab's `Player` key.
+ * declared per tab and matched exactly, so a near-miss on another tab can never
+ * satisfy it.
+ *
+ * `required` lists the fields whose absence is a real problem. Anything else is
+ * optional and simply won't be read. The Connection panel shows missing
+ * required headers in red — a silently absent `FGA` column would otherwise look
+ * like a season of missed shots.
  */
 export const SCHEMAS = {
   players: {
+    label: 'Players',
     key: 'player id',
+    required: ['playerId', 'fullName'],
     fields: {
       playerId: ['player id'],
       fullName: ['full name', 'name', 'player name'],
@@ -25,49 +32,38 @@ export const SCHEMAS = {
       position: ['position', 'pos'],
     },
   },
+
   games: {
+    label: 'Games',
     key: 'game id',
+    required: ['gameId', 'date', 'opponent', 'homeAway'],
     fields: {
       gameId: ['game id'],
       date: ['date'],
       opponent: ['opponent', 'opp'],
       homeAway: ['home/away', 'h/a', 'home away', 'homeaway'],
+      // Optional. Present, they unlock record and margin on the dashboard.
+      teamScore: ['team score', 'our score', 'points for', 'pf'],
+      oppScore: ['opponent score', 'opp score', 'points against', 'pa'],
     },
   },
+
   /**
-   * The StatsLog tab: one row per player per game, typed into the sheet.
-   * Same stat columns as the Form, but keyed on `Stat ID` and referencing
-   * `Game ID` / `Player ID` directly instead of dropdown labels.
+   * StatsLog: one row per player per game, typed straight into the sheet.
+   * This is the only stats source — there is no Google Form.
    */
   statslog: {
+    label: 'StatsLog',
     key: 'stat id',
+    required: [
+      'statId', 'game', 'player',
+      'points', 'rebounds', 'assists', 'steals', 'blocks', 'turnovers',
+      'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta', 'fouls',
+    ],
     fields: {
       statId: ['stat id'],
       player: ['player id'],
       game: ['game id'],
-      points: ['points', 'pts'],
-      rebounds: ['rebounds', 'reb', 'rebs'],
-      assists: ['assists', 'ast'],
-      steals: ['steals', 'stl'],
-      blocks: ['blocks', 'blk'],
-      turnovers: ['turnovers', 'tov', 'to'],
-      fgm: ['fgm'],
-      fga: ['fga'],
-      tpm: ['3pm', '3ptm'],
-      tpa: ['3pa', '3pta'],
-      ftm: ['ftm'],
-      fta: ['fta'],
-      fouls: ['fouls', 'pf'],
-      notes: ['notes', 'note'],
-    },
-  },
-
-  responses: {
-    key: 'player',
-    fields: {
-      timestamp: ['timestamp'],
-      player: ['player', 'player id'],
-      game: ['game', 'game id'],
       points: ['points', 'pts'],
       rebounds: ['rebounds', 'reb', 'rebs'],
       assists: ['assists', 'ast'],
@@ -89,9 +85,9 @@ export const SCHEMAS = {
 /**
  * Find the index of the real header row.
  *
- * Tabs carry a title line, one or more legend lines and a blank row above the
- * header, and editing a legend line shifts that offset — so the row is located
- * by content, never by a fixed number.
+ * Every tab carries a title line, one or more legend lines and a blank row
+ * above the header, and editing a legend line shifts that offset — so the row
+ * is located by content, never by a fixed number.
  *
  * @param {string[][]} rows
  * @param {string} keyHeader normalized key header for this tab
@@ -110,9 +106,6 @@ export function findHeaderRow(rows, keyHeader) {
  *
  * Example rows are identified by an `EX`-prefixed ID rather than by their
  * contents, so a real player never disappears for resembling the sample.
- *
- * @param {string} keyValue
- * @returns {boolean}
  */
 export function isSkippableKey(keyValue) {
   const v = String(keyValue == null ? '' : keyValue).trim();
@@ -123,9 +116,8 @@ export function isSkippableKey(keyValue) {
 /**
  * Parse one tab's CSV into canonical records.
  *
- * @param {string} csvText
- * @param {{key: string, fields: Object<string,string[]>}} schema
  * @returns {{records: Object[], headerRow: number, headers: string[],
+ *            matched: Object<string,string>, missing: string[],
  *            unknownColumns: string[], skipped: number, error: string|null}}
  */
 export function parseTab(csvText, schema) {
@@ -134,11 +126,8 @@ export function parseTab(csvText, schema) {
 
   if (headerRow === -1) {
     return {
-      records: [],
-      headerRow: -1,
-      headers: [],
-      unknownColumns: [],
-      skipped: 0,
+      records: [], headerRow: -1, headers: [], matched: {},
+      missing: schema.required.slice(), unknownColumns: [], skipped: 0,
       error: `No header row found — expected a column named "${schema.key}".`,
     };
   }
@@ -148,10 +137,16 @@ export function parseTab(csvText, schema) {
   // Map each canonical field to the first column whose header matches one of
   // its accepted spellings.
   const columnOf = {};
+  const matched = {};
   for (const [field, aliases] of Object.entries(schema.fields)) {
     const idx = headers.findIndex((h) => h !== '' && aliases.includes(h));
-    if (idx !== -1) columnOf[field] = idx;
+    if (idx !== -1) {
+      columnOf[field] = idx;
+      matched[field] = rows[headerRow][idx];
+    }
   }
+
+  const missing = schema.required.filter((field) => !(field in columnOf));
 
   const claimed = new Set(Object.values(columnOf));
   const unknownColumns = headers
@@ -177,7 +172,7 @@ export function parseTab(csvText, schema) {
     records.push(record);
   }
 
-  return { records, headerRow, headers, unknownColumns, skipped, error: null };
+  return { records, headerRow, headers, matched, missing, unknownColumns, skipped, error: null };
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,22 +191,25 @@ export function gvizUrl(fileId, tabName) {
   );
 }
 
+/** Published-to-web CSV export, addressed by GID. */
+export function pubCsvUrl(pubKey, gid) {
+  return (
+    `https://docs.google.com/spreadsheets/d/e/${encodeURIComponent(pubKey)}` +
+    `/pub?gid=${encodeURIComponent(gid)}&single=true&output=csv`
+  );
+}
+
 /** The published HTML view, which lists every published tab and its gid. */
 export function pubHtmlUrl(pubKey) {
   return `https://docs.google.com/spreadsheets/d/e/${encodeURIComponent(pubKey)}/pubhtml`;
 }
 
 /**
- * Pull tab name -> gid out of a published sheet's HTML.
- *
- * The pubhtml page carries a tab strip built from elements whose ids look like
- * `sheet-button-<gid>`. Reading it means a publish key alone is enough — no
- * hunting for gids in the sheet UI.
+ * Pull tab name -> gid out of a published sheet's HTML, so a publish key alone
+ * is enough when gids aren't configured.
  *
  * Parsed with the DOM rather than by regex over the whole document, so sheet
  * content can never be interpreted as markup.
- *
- * @returns {Object<string,string>} normalized tab name -> gid
  */
 export function parseTabGids(html) {
   const map = {};
@@ -226,12 +224,6 @@ export function parseTabGids(html) {
   return map;
 }
 
-/**
- * Discover gids for a published sheet. Cached for the session so three tabs
- * cost one request.
- *
- * @returns {Promise<{gids: Object<string,string>, error: string|null}>}
- */
 let gidPromise = null;
 export function discoverGids(pubKey, { force = false } = {}) {
   if (!pubKey) return Promise.resolve({ gids: {}, error: 'No publish key configured.' });
@@ -247,7 +239,6 @@ export function discoverGids(pubKey, { force = false } = {}) {
       }
       return { gids, error: null };
     } catch (err) {
-      // Usually CORS. The manual gid path in config.js still works.
       return { gids: {}, error: `Could not read the published sheet's tab list (${err.message}). Add tab gids in config.js.` };
     }
   })();
@@ -255,20 +246,10 @@ export function discoverGids(pubKey, { force = false } = {}) {
   return gidPromise;
 }
 
-/** Published-to-web CSV export, addressed by GID. */
-export function pubCsvUrl(pubKey, gid) {
-  return (
-    `https://docs.google.com/spreadsheets/d/e/${encodeURIComponent(pubKey)}` +
-    `/pub?gid=${encodeURIComponent(gid)}&single=true&output=csv`
-  );
-}
-
 /**
  * Build the ordered list of URLs to try for one tab.
- * gviz comes first: it addresses tabs by name, so it survives a tab being
- * moved or re-created, which changes a GID.
- *
- * @returns {{url: string, strategy: string}[]}
+ * gviz comes first: it addresses tabs by name, so it survives a tab being moved
+ * or re-created, which changes a gid.
  */
 export function endpointsFor(sheetConfig, tabName, gid) {
   const out = [];
@@ -307,57 +288,66 @@ function cacheSet(name, payload) {
 
 /**
  * Fetch one tab, trying each configured endpoint in order.
- * Returns the CSV text plus which strategy produced it, or every failure.
  *
- * @returns {Promise<{text: string|null, strategy: string|null, attempts: {url:string,strategy:string,error:string}[]}>}
+ * The URL and HTTP status of the *successful* attempt are returned too, not
+ * just the failures: the Connection panel has to show what it actually read, or
+ * there's no way to tell a stale sheet from a wrong one.
+ *
+ * @returns {Promise<{text: string|null, strategy: string|null, url: string|null,
+ *                    status: number|null, attempts: Object[]}>}
  */
 export async function fetchTabText(endpoints) {
   const attempts = [];
   for (const ep of endpoints) {
     try {
-      // Cache-bust so a phone doesn't sit on a stale copy after a resubmission.
+      // Cache-bust so a phone doesn't sit on a stale copy after an edit.
       const url = ep.url + (ep.url.includes('?') ? '&' : '?') + '_=' + Date.now();
       const res = await fetch(url, { redirect: 'follow' });
       if (!res.ok) {
-        attempts.push({ url: ep.url, strategy: ep.strategy, error: `HTTP ${res.status} ${res.statusText}` });
+        attempts.push({ url: ep.url, strategy: ep.strategy, status: res.status, error: `HTTP ${res.status} ${res.statusText}` });
         continue;
       }
       const text = await res.text();
       // A sheet that isn't published returns an HTML sign-in page with HTTP 200.
       if (/^\s*<(?:!doctype|html)/i.test(text)) {
         attempts.push({
-          url: ep.url,
-          strategy: ep.strategy,
+          url: ep.url, strategy: ep.strategy, status: res.status,
           error: 'Got an HTML page instead of CSV — the tab is probably not published to the web.',
         });
         continue;
       }
-      return { text, strategy: ep.strategy, attempts };
+      return { text, strategy: ep.strategy, url: ep.url, status: res.status, attempts };
     } catch (err) {
-      attempts.push({ url: ep.url, strategy: ep.strategy, error: String(err && err.message ? err.message : err) });
+      attempts.push({
+        url: ep.url, strategy: ep.strategy, status: null,
+        error: String(err && err.message ? err.message : err),
+      });
     }
   }
-  return { text: null, strategy: null, attempts };
+  return { text: null, strategy: null, url: null, status: null, attempts };
 }
 
 /**
- * Load one tab: cached copy first (so the page paints immediately), then the
- * network. Falls back to the bundled sample CSV when nothing is configured.
+ * Load one tab: the network, then the bundled sample, then the last cached
+ * copy. Whatever lands, the result carries enough detail for the Connection
+ * panel to explain itself.
  */
 export async function loadTab({ name, schema, endpoints, sampleUrl }) {
   const cached = cacheGet(name);
 
-  let result;
-  if (endpoints.length > 0) {
-    result = await fetchTabText(endpoints);
-  } else {
-    result = { text: null, strategy: null, attempts: [] };
-  }
+  let result = endpoints.length > 0
+    ? await fetchTabText(endpoints)
+    : { text: null, strategy: null, url: null, status: null, attempts: [] };
 
   if (result.text == null && sampleUrl) {
     try {
       const res = await fetch(sampleUrl);
-      if (res.ok) result = { text: await res.text(), strategy: 'bundled sample data', attempts: result.attempts };
+      if (res.ok) {
+        result = {
+          text: await res.text(), strategy: 'bundled sample data',
+          url: sampleUrl, status: res.status, attempts: result.attempts,
+        };
+      }
     } catch {
       /* fall through to cache */
     }
@@ -365,16 +355,24 @@ export async function loadTab({ name, schema, endpoints, sampleUrl }) {
 
   if (result.text == null) {
     if (cached) {
-      return { ...parseTab(cached.text, schema), strategy: 'cached copy', attempts: result.attempts, fetchedAt: cached.fetchedAt, stale: true };
+      return {
+        ...parseTab(cached.text, schema), strategy: 'cached copy', url: null, status: null,
+        attempts: result.attempts, fetchedAt: cached.fetchedAt, stale: true,
+      };
     }
     return {
-      records: [], headerRow: -1, headers: [], unknownColumns: [], skipped: 0,
-      error: 'Could not load this tab.', strategy: null, attempts: result.attempts, fetchedAt: null, stale: false,
+      records: [], headerRow: -1, headers: [], matched: {}, missing: schema.required.slice(),
+      unknownColumns: [], skipped: 0, error: 'Could not load this tab.',
+      strategy: null, url: null, status: null, attempts: result.attempts, fetchedAt: null, stale: false,
     };
   }
 
   const fetchedAt = new Date().toISOString();
   if (result.strategy !== 'bundled sample data') cacheSet(name, { text: result.text, fetchedAt });
 
-  return { ...parseTab(result.text, schema), strategy: result.strategy, attempts: result.attempts, fetchedAt, stale: false };
+  return {
+    ...parseTab(result.text, schema),
+    strategy: result.strategy, url: result.url, status: result.status,
+    attempts: result.attempts, fetchedAt, stale: false,
+  };
 }
