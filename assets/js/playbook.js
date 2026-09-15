@@ -14,6 +14,13 @@ import {
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay,
 } from './library.js';
+import { CONFIG } from './config.js';
+import { loadAll } from './data.js';
+import { shortName } from './model.js';
+import {
+  SLOTS, readLineup, writeLineup, pruneLineup, availableFor, playerInSlot,
+  assignSlot, tokenGlyph,
+} from './lineup.js';
 
 const $ = (s) => document.querySelector(s);
 const svg = $('#court');
@@ -34,6 +41,11 @@ const S = {
   team: [],
   lib: { q: '', category: '', tag: '' },
   saveTimer: null,
+  // Who is standing in each offensive slot. Display only — never saved into a
+  // play, so any play can be opened with any lineup.
+  lineup: {},
+  roster: [],
+  rosterError: null,
 };
 
 /** Where each player starts when you add them, so a set takes seconds to lay out. */
@@ -196,8 +208,19 @@ function renderToken(t, ghost = false) {
   if (!ghost) g.setAttribute('data-id', t.id);
 
   if (t.kind === 'offense') {
+    const player = playerInSlot(t.label, S.lineup, S.roster);
     g.append(node('circle', { r: TOKEN_R, class: 'tok-body' }));
-    g.append(textNode(t.label, { class: 'tok-label', 'font-size': 1.55 }));
+    g.append(textNode(tokenGlyph(player, t.label), {
+      class: 'tok-label',
+      'font-size': player && tokenGlyph(player, t.label).length > 2 ? 1.15 : 1.55,
+    }));
+    // The name goes under the token, and only when names are what we're
+    // showing — with jersey or initials mode the glyph already says it all.
+    if (player && CONFIG.nameDisplay === 'full') {
+      g.append(textNode(shortName(player, 'full'), {
+        class: 'tok-name', y: TOKEN_R + 1.05, 'font-size': 1.0,
+      }));
+    }
   } else if (t.kind === 'defense') {
     g.append(node('circle', { r: TOKEN_R, class: 'tok-hit' }));
     g.append(node('path', { d: 'M -0.95 -0.95 L 0.95 0.95 M 0.95 -0.95 L -0.95 0.95', class: 'tok-x' }));
@@ -643,6 +666,83 @@ function deleteFrame() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Lineup                                                              */
+/* ------------------------------------------------------------------ */
+
+function renderLineup() {
+  const wrap = $('#lineup-slots');
+  const note = $('#lineup-note');
+  wrap.replaceChildren();
+
+  const disabled = S.roster.length === 0;
+
+  for (const slot of SLOTS) {
+    const field = document.createElement('label');
+    field.className = 'lineup-slot';
+
+    const tag = document.createElement('span');
+    tag.className = 'lineup-num';
+    tag.textContent = slot;
+    field.append(tag);
+
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Player in position ${slot}`);
+    select.disabled = disabled;
+
+    select.append(new Option('—', ''));
+    // Only players who aren't already standing somewhere else, so the dropdown
+    // can't build a lineup that couldn't exist.
+    for (const p of availableFor(slot, S.lineup, S.roster)) {
+      const label = p.jersey ? `${p.jersey} · ${p.fullName}` : p.fullName;
+      select.append(new Option(label, p.playerId));
+    }
+    select.value = S.lineup[slot] || '';
+
+    select.addEventListener('change', (e) => {
+      S.lineup = assignSlot(S.lineup, slot, e.target.value);
+      writeLineup(S.lineup);
+      renderLineup();
+      render();
+    });
+
+    field.append(select);
+    wrap.append(field);
+  }
+
+  $('#lineup-clear').disabled = disabled || Object.keys(S.lineup).length === 0;
+
+  if (S.rosterError) {
+    note.textContent = `Roster unavailable — ${S.rosterError} Tokens show 1\u20135.`;
+  } else if (disabled) {
+    note.textContent = 'No players found in the sheet, so tokens show 1\u20135.';
+  } else {
+    note.textContent = 'Shown on the court only — never saved into the play.';
+  }
+}
+
+/**
+ * Pull the roster in the background. The editor is fully usable without it;
+ * a coach drawing a play on a plane shouldn't be blocked by a sheet fetch.
+ */
+async function loadRoster() {
+  try {
+    const data = await loadAll();
+    S.roster = data.players || [];
+    S.rosterError = S.roster.length === 0 ? null : null;
+  } catch (err) {
+    S.roster = [];
+    S.rosterError = err?.message ? `${err.message}.` : 'the sheet could not be read.';
+  }
+
+  // A stored ID that no longer exists on the roster clears its slot.
+  S.lineup = pruneLineup(readLineup(), S.roster);
+  writeLineup(S.lineup);
+
+  renderLineup();
+  render();
+}
+
+/* ------------------------------------------------------------------ */
 /* Play form                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -842,6 +942,13 @@ function bind() {
   $('#fr-del').addEventListener('click', deleteFrame);
   $('#fr-ghost').addEventListener('change', (e) => { S.ghost = e.target.checked; render(); });
 
+  $('#lineup-clear').addEventListener('click', () => {
+    S.lineup = {};
+    writeLineup(S.lineup);
+    renderLineup();
+    render();
+  });
+
   $('#p-new').addEventListener('click', () => {
     const play = newPlay();
     savePlay(play);
@@ -936,7 +1043,9 @@ function init() {
   }
 
   setTool('select');
+  renderLineup();
   renderTeam();
+  loadRoster();
 }
 
 init();
