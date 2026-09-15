@@ -17,6 +17,10 @@ import {
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
 import { shortName } from './model.js';
+import { printPlay } from './printout.js';
+import {
+  publishPlan, markPublished, fileUrl, minify, slugify as pubSlug,
+} from './publish.js';
 import {
   SLOTS, readLineup, writeLineup, pruneLineup, availableFor, playerInSlot,
   assignSlot, tokenGlyph,
@@ -39,6 +43,7 @@ const S = {
   redo: [],
   ghost: true,
   team: [],
+  teamError: null,
   lib: { q: '', category: '', tag: '' },
   saveTimer: null,
   // Who is standing in each offensive slot. Display only — never saved into a
@@ -356,6 +361,7 @@ function scheduleSave() {
     const saved = savePlay(S.play);
     setSaveState(saved ? 'saved' : 'error');
     renderLibrary();
+    refreshPublish();
   }, 350);
 }
 
@@ -798,6 +804,7 @@ function loadPlay(play) {
   render();
   setSaveState('saved');
   renderLibrary();
+  refreshPublish();
 }
 
 /* ------------------------------------------------------------------ */
@@ -821,7 +828,7 @@ function renderLibrary() {
   datalist.replaceChildren();
   for (const c of allCategories(plays)) datalist.append(new Option(c));
 
-  const matches = searchPlays(plays, S.lib.q, S.lib);
+  const matches = markPublished(searchPlays(plays, S.lib.q, S.lib), S.team);
   const list = $('#play-list');
   list.replaceChildren();
 
@@ -846,10 +853,28 @@ function playRow(play, readOnly) {
   btn.type = 'button';
   btn.className = 'play-open';
 
+  const top = document.createElement('span');
+  top.className = 'play-title';
   const name = document.createElement('span');
   name.className = 'play-name';
   name.textContent = play.name;
-  btn.append(name);
+  top.append(name);
+
+  // Every card says where it lives. This is the whole fix for "it's on my
+  // computer but not my phone".
+  const badge = document.createElement('span');
+  if (readOnly) {
+    badge.className = 'src-badge team';
+    badge.textContent = 'Team';
+  } else if (play.published) {
+    badge.className = 'src-badge published';
+    badge.textContent = play.newerThanTeam ? 'Edited since publishing' : 'Published';
+  } else {
+    badge.className = 'src-badge device';
+    badge.textContent = 'This device';
+  }
+  top.append(badge);
+  btn.append(top);
 
   const meta = document.createElement('span');
   meta.className = 'play-meta';
@@ -868,29 +893,87 @@ function playRow(play, readOnly) {
 
   btn.addEventListener('click', () => {
     if (readOnly) {
-      // Copying is the only way to edit a team play, so the shared copy stays put.
-      const copy = { ...structuredClone(play), id: uid(), name: `${play.name} (team copy)` };
-      savePlay(copy);
+      // Keep the id: this is the same play, now editable here. Minting a new
+      // one would make it look unrelated to the file it came from, and
+      // re-publishing would fork it instead of updating it.
+      const existing = listPlays().find((p) => p.id === play.id);
+      if (existing) { loadPlay(existing); return; }
+      const copy = structuredClone(play);
+      // Not an edit: keep updatedAt so the card reads "Published" rather than
+      // claiming work that hasn't happened yet.
+      savePlay(copy, { touch: false });
       loadPlay(copy);
     } else {
       loadPlay(play);
     }
+    renderLibrary();
   });
 
   li.append(btn);
+
+  // Row actions, kept off the open-the-play button so a stray tap can't
+  // destroy something.
+  const actions = document.createElement('div');
+  actions.className = 'play-actions';
+
+  if (readOnly) {
+    const link = document.createElement('a');
+    link.className = 'play-action';
+    link.href = fileUrl(play.path || `plays/${pubSlug(play.name)}.json`);
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'On GitHub';
+    link.title = 'To remove it from the team playbook, delete the file on GitHub.';
+    actions.append(link);
+  } else if (play.published) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'play-action';
+    remove.textContent = 'Remove local copy';
+    remove.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!confirm(`Remove the local copy of “${play.name}”? It stays in the team playbook.`)) return;
+      deletePlay(play.id);
+      if (S.play.id === play.id) {
+        const team = S.team.find((t) => t.id === play.id);
+        if (team) loadPlay(structuredClone(team));
+      }
+      renderLibrary();
+    });
+    actions.append(remove);
+  }
+
+  if (actions.childElementCount) li.append(actions);
   return li;
 }
 
 async function renderTeam() {
-  const { plays } = await loadTeamPlaybook();
+  const { plays, error } = await loadTeamPlaybook();
   S.team = plays;
-  if (plays.length === 0) return;
+  S.teamError = error;
 
-  $('#team-card').hidden = false;
   $('#team-count').textContent = String(plays.length);
+  const status = $('#team-status');
   const list = $('#team-list');
   list.replaceChildren();
+
+  // An empty list and a failed fetch are different problems. Saying which one
+  // it is turns "where did my play go" into a fixable answer.
+  if (error) {
+    status.className = 'small missing';
+    status.textContent = `Couldn't load the team playbook — ${error}`;
+  } else if (plays.length === 0) {
+    status.className = 'small muted';
+    status.textContent = 'No team plays published yet.';
+  } else {
+    status.className = 'small muted';
+    status.textContent = '';
+  }
+
   for (const play of plays) list.append(playRow(play, true));
+
+  renderLibrary();   // published badges depend on the team index
+  refreshPublish();
 }
 
 function download(filename, text) {
@@ -904,6 +987,84 @@ function download(filename, text) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+/* ------------------------------------------------------------------ */
+/* Publish + PDF                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Keep the Publish link's href current.
+ *
+ * It has to be a real anchor with the href already set: Safari blocks
+ * window.open() called after an await, so a click handler that fetches or
+ * awaits before opening simply does nothing on a phone — which is the one
+ * device this feature exists for.
+ */
+function refreshPublish() {
+  const link = $('#p-publish');
+  const note = $('#publish-note');
+  if (!link) return;
+
+  const plan = publishPlan(S.play, S.team);
+  link.dataset.action = plan.action;
+  link.dataset.path = plan.path;
+
+  if (plan.action === 'conflict') {
+    link.removeAttribute('href');
+    link.classList.add('disabled');
+    link.textContent = 'Rename before publishing';
+    note.className = 'small missing';
+    note.textContent = plan.message;
+    return;
+  }
+
+  link.href = plan.url;
+  link.classList.remove('disabled');
+  link.textContent = plan.action === 'update' ? 'Update on team playbook' : 'Publish to team playbook';
+  note.className = 'small muted';
+  note.textContent = plan.clipboardOnly
+    ? plan.message
+    : 'Opens GitHub with the file filled in — just commit.';
+}
+
+async function onPublishClick(e) {
+  const link = $('#p-publish');
+  const plan = publishPlan(S.play, S.team);
+
+  if (plan.action === 'conflict') {
+    e.preventDefault();
+    alert(plan.message);
+    return;
+  }
+
+  // Copy inside the click, before the anchor navigates: a later write loses
+  // the user gesture that browsers require.
+  if (plan.clipboard) {
+    try {
+      await navigator.clipboard.writeText(plan.clipboard);
+      $('#publish-note').className = 'small';
+      $('#publish-note').textContent = plan.message;
+    } catch {
+      // Blocked clipboard (insecure context, permissions): the download is the
+      // way out, so say that rather than failing silently.
+      $('#publish-note').className = 'small missing';
+      $('#publish-note').textContent = 'Could not copy automatically — use Download backup (.json) and upload it.';
+    }
+  }
+
+  if (plan.playbookUrl) {
+    $('#publish-note').textContent = 'Two commits: the playbook file first, then the play.';
+  }
+  void link;
+}
+
+/** The renderers the print view borrows, so the page matches the screen. */
+const printDraw = {
+  defs,
+  renderToken: (t) => renderToken(t),
+  renderArrow: (a) => renderArrow(a),
+  renderText: (t) => renderText(t),
+};
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */
@@ -958,6 +1119,9 @@ function bind() {
     const copy = duplicatePlay(S.play);
     if (copy) loadPlay(copy);
   });
+  $('#p-pdf').addEventListener('click', () => printPlay(S.play, printDraw));
+  $('#p-publish').addEventListener('click', onPublishClick);
+
   $('#p-export').addEventListener('click', () => {
     download(`${slugify(S.play.name)}.json`, exportPlay(S.play));
   });

@@ -137,18 +137,34 @@
         </div>
 
         <div class="pb-actions">
-          <button type="button" class="btn btn-primary" id="p-new">New play</button>
+          <button type="button" class="btn btn-primary" id="p-pdf">Export PDF</button>
+          <a class="btn" id="p-publish" href="#" target="_blank" rel="noopener">Publish to team playbook</a>
+        </div>
+        <p class="small muted" id="publish-note"></p>
+
+        <div class="pb-actions">
+          <button type="button" class="btn" id="p-new">New play</button>
           <button type="button" class="btn" id="p-dup">Duplicate</button>
-          <button type="button" class="btn" id="p-export">Export</button>
           <button type="button" class="btn danger" id="p-delete">Delete</button>
         </div>
+
+        <details class="panel secondary">
+          <summary>More</summary>
+          <div class="panel-body">
+            <p class="small muted">For re-importing into the play builder. Not a viewable
+              document.</p>
+            <button type="button" class="btn" id="p-export">Download backup (.json)</button>
+          </div>
+        </details>
       </div>
 
       <div class="card">
         <div class="pb-side-head">
-          <h2>Playbook</h2>
+          <h2>On this device</h2>
           <span class="pill" id="lib-count">0</span>
         </div>
+        <p class="small muted">Saved only in this browser. Publish to team playbook to see it on
+          other devices.</p>
 
         <div class="field">
           <label for="lib-search">Search</label>
@@ -174,13 +190,14 @@
         </div>
       </div>
 
-      <div class="card" id="team-card" hidden>
+      <div class="card" id="team-card">
         <div class="pb-side-head">
           <h2>Team playbook</h2>
           <span class="pill" id="team-count">0</span>
         </div>
-        <p class="small muted">Committed to the repo in <code>plays/</code> — the same on every
-          device. Copy one into your own playbook to edit it.</p>
+        <p class="small muted">Published to the site in <code>plays/</code> — the same on every
+          device. Opening one copies it here so you can edit it.</p>
+        <p class="small" id="team-status"></p>
         <ul class="play-list" id="team-list"></ul>
       </div>
     </aside>
