@@ -1,10 +1,10 @@
 /**
- * Pure data logic: resolve Form dropdown tokens, dedupe resubmissions, decide
- * what counts as a game played, run sanity checks, and aggregate.
+ * Pure data logic: join the three tabs, dedupe, decide what counts as a game
+ * played, run sanity checks, and aggregate.
  *
  * Every function here is side-effect free so the whole rule set is unit-tested
  * without a browser. Nothing is ever silently discarded: anything that cannot
- * be resolved comes back in `issues` for the connection panel.
+ * be resolved comes back in `issues` for the Connection panel.
  */
 
 /** The 13 stat columns. `Notes` is deliberately not one of them. */
@@ -35,23 +35,8 @@ export function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Take the ID token from a Form dropdown label such as "12 - John Smith" or
- * "G05 - vs Central (9/15)".
- *
- * Google Forms, a paste from a doc and a hand-typed option produce different
- * dashes, so en dash, em dash and hyphen are all accepted. A value with no
- * separator is treated as a bare ID, which keeps typed-ID sheets working.
- */
-export function parseIdToken(text) {
-  const s = String(text == null ? '' : text).trim();
-  if (s === '') return '';
-  const m = s.match(/^(.*?)\s+[–—-]\s+/);
-  return (m ? m[1] : s).trim();
-}
-
-/** Loose equality for IDs and jerseys: case-insensitive, and 07 === 7. */
-function tokenMatches(a, b) {
+/** Loose equality for IDs: case-insensitive, and 07 === 7. */
+export function idMatches(a, b) {
   const x = String(a == null ? '' : a).trim();
   const y = String(b == null ? '' : b).trim();
   if (x === '' || y === '') return false;
@@ -59,68 +44,6 @@ function tokenMatches(a, b) {
   const nx = Number(x);
   const ny = Number(y);
   return Number.isFinite(nx) && Number.isFinite(ny) && nx === ny;
-}
-
-/**
- * Resolve a player token against the roster: Player ID first, then jersey.
- *
- * A token that matches one player's ID *and a different player's jersey* is
- * reported rather than resolved — precedence would silently pick one of two
- * real people, and the coach is the only one who can say which was meant.
- *
- * @returns {{playerId: string|null, matchedBy: 'id'|'jersey'|null, issue: string|null}}
- */
-export function resolvePlayerToken(token, players) {
-  const t = String(token == null ? '' : token).trim();
-  if (t === '') return { playerId: null, matchedBy: null, issue: 'blank player' };
-
-  const byId = players.filter((p) => tokenMatches(p.playerId, t));
-  const byJersey = players.filter((p) => tokenMatches(p.jersey, t));
-
-  if (byId.length > 1) {
-    return {
-      playerId: null,
-      matchedBy: null,
-      issue: `"${t}" matches ${byId.length} rows in Players — Player IDs must be unique`,
-    };
-  }
-
-  if (byId.length === 1) {
-    const conflicting = byJersey.filter((p) => p.playerId !== byId[0].playerId);
-    if (conflicting.length > 0) {
-      const names = conflicting.map((p) => p.fullName || p.playerId).join(', ');
-      const self = byId[0].fullName || byId[0].playerId;
-      return {
-        playerId: null,
-        matchedBy: null,
-        issue: `"${t}" is ${self}'s Player ID but also ${names}'s jersey number — rename one so the dropdown is unambiguous`,
-      };
-    }
-    return { playerId: byId[0].playerId, matchedBy: 'id', issue: null };
-  }
-
-  if (byJersey.length === 1) {
-    return { playerId: byJersey[0].playerId, matchedBy: 'jersey', issue: null };
-  }
-
-  if (byJersey.length > 1) {
-    const names = byJersey.map((p) => p.fullName || p.playerId).join(', ');
-    return { playerId: null, matchedBy: null, issue: `jersey "${t}" is worn by ${names}` };
-  }
-
-  return { playerId: null, matchedBy: null, issue: `no player matches "${t}"` };
-}
-
-/** Resolve a game token against the schedule. */
-export function resolveGameToken(token, games) {
-  const t = String(token == null ? '' : token).trim();
-  if (t === '') return { gameId: null, issue: 'blank game' };
-  const matches = games.filter((g) => tokenMatches(g.gameId, t));
-  if (matches.length === 1) return { gameId: matches[0].gameId, issue: null };
-  if (matches.length > 1) {
-    return { gameId: null, issue: `"${t}" matches ${matches.length} rows in Games — Game IDs must be unique` };
-  }
-  return { gameId: null, issue: `no game matches "${t}"` };
 }
 
 /**
@@ -155,6 +78,14 @@ export function parseSheetDate(value) {
 
   const pad = (n) => String(n).padStart(2, '0');
   return { year, month, day, key: `${year}-${pad(month)}-${pad(day)}`, ms: d.getTime() };
+}
+
+/** The sheet's dropdown says Home or Away; be forgiving about spelling anyway. */
+export function normalizeHomeAway(value) {
+  const s = String(value == null ? '' : value).trim().toLowerCase();
+  if (s.startsWith('h')) return 'Home';
+  if (s.startsWith('a')) return 'Away';
+  return '';
 }
 
 /* ------------------------------------------------------------------ */
@@ -197,16 +128,15 @@ export function sanityCheck(stats) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Join the three tabs into game rows.
+ * Join StatsLog rows to Players and Games.
  *
- * Dedupe is by (Game ID, Player ID) with the later sheet row winning.
- * `Timestamp` is never parsed: Form responses append in submission order, so
- * row position already carries it, without depending on the sheet's locale.
+ * Dedupe is by (Game ID, Player ID) with the later sheet row winning — adding a
+ * corrected row below the original is how a mistake gets fixed.
  */
-export function buildDataset({ players = [], games = [], responses = [] } = {}) {
+export function buildDataset({ players = [], games = [], stats = [] } = {}) {
   const issues = {
     superseded: [], unmatchedPlayers: [], unmatchedGames: [],
-    ambiguousTokens: [], sanityFlags: [], invalidDates: [],
+    sanityFlags: [], invalidDates: [],
   };
 
   const playerById = new Map();
@@ -216,43 +146,45 @@ export function buildDataset({ players = [], games = [], responses = [] } = {}) 
   for (const g of games) {
     const date = parseSheetDate(g.date);
     if (g.date && !date) issues.invalidDates.push({ gameId: g.gameId, value: g.date });
-    gameById.set(g.gameId, { ...g, date, dateRaw: g.date });
+    gameById.set(g.gameId, {
+      ...g,
+      date,
+      dateRaw: g.date,
+      homeAway: normalizeHomeAway(g.homeAway),
+      teamScore: toNumber(g.teamScore),
+      oppScore: toNumber(g.oppScore),
+      sheetRow: g._sheetRow,
+    });
   }
 
-  // Resolve tokens first; unresolvable rows are reported, not carried forward.
   const resolved = [];
-  for (const r of responses) {
-    const p = resolvePlayerToken(parseIdToken(r.player), players);
-    const g = resolveGameToken(parseIdToken(r.game), games);
+  for (const r of stats) {
+    const player = players.find((p) => idMatches(p.playerId, r.player));
+    const game = games.find((g) => idMatches(g.gameId, r.game));
 
-    if (p.issue) {
-      const ambiguous = /also|worn by|must be unique/.test(p.issue);
-      (ambiguous ? issues.ambiguousTokens : issues.unmatchedPlayers).push({
-        sheetRow: r._sheetRow, value: r.player, detail: p.issue,
-      });
+    if (!player) {
+      issues.unmatchedPlayers.push({ sheetRow: r._sheetRow, value: r.player, detail: `no player matches "${r.player}"` });
     }
-    if (g.issue) {
-      const ambiguous = /must be unique/.test(g.issue);
-      (ambiguous ? issues.ambiguousTokens : issues.unmatchedGames).push({
-        sheetRow: r._sheetRow, value: r.game, detail: g.issue,
-      });
+    if (!game) {
+      issues.unmatchedGames.push({ sheetRow: r._sheetRow, value: r.game, detail: `no game matches "${r.game}"` });
     }
-    if (!p.playerId || !g.gameId) continue;
+    if (!player || !game) continue;
 
-    const stats = {};
-    for (const f of STAT_FIELDS) stats[f] = toNumber(r[f]);
+    const rowStats = {};
+    for (const f of STAT_FIELDS) rowStats[f] = toNumber(r[f]);
 
     resolved.push({
-      key: `${g.gameId}::${p.playerId}`,
-      gameId: g.gameId,
-      playerId: p.playerId,
-      stats,
+      key: `${game.gameId}::${player.playerId}`,
+      gameId: game.gameId,
+      playerId: player.playerId,
+      statId: r.statId || '',
+      stats: rowStats,
       notes: r.notes || '',
       sheetRow: r._sheetRow,
     });
   }
 
-  // Later sheet row wins. Resubmitting the Form is how a coach fixes a mistake.
+  // Later sheet row wins.
   const winner = new Map();
   for (const row of resolved) {
     const prev = winner.get(row.key);
@@ -281,45 +213,108 @@ export function buildDataset({ players = [], games = [], responses = [] } = {}) 
     }
 
     rows.push({
-      ...row,
-      dnp,
-      flags,
-      player,
-      game,
+      ...row, dnp, flags, player, game,
       opponent: game?.opponent || '',
-      homeAway: normalizeHomeAway(game?.homeAway),
+      homeAway: game?.homeAway || '',
       date: game?.date || null,
     });
   }
 
-  rows.sort((a, b) => (a.date?.ms ?? 0) - (b.date?.ms ?? 0) || a.gameId.localeCompare(b.gameId));
-  return { rows, issues };
-}
-
-/** The sheet's dropdown says Home or Away; be forgiving about spelling anyway. */
-export function normalizeHomeAway(value) {
-  const s = String(value == null ? '' : value).trim().toLowerCase();
-  if (s.startsWith('h')) return 'Home';
-  if (s.startsWith('a')) return 'Away';
-  return '';
+  return { rows, issues, gameById, playerById };
 }
 
 /* ------------------------------------------------------------------ */
-/* Aggregation                                                         */
+/* Games                                                               */
 /* ------------------------------------------------------------------ */
 
 /**
- * Totals, percentages, games played and per-game averages.
- * Averages divide by games played, so a DNP never drags an average down.
+ * Newest first; ties broken by the later sheet row; undated games last.
+ * Undated games sink rather than sorting as epoch zero, which would bury them
+ * under every real game and look like a bug.
  */
-export function aggregate(rows) {
+export function compareGames(a, b) {
+  const ad = a.date?.ms ?? null;
+  const bd = b.date?.ms ?? null;
+  if (ad == null && bd == null) return (b.sheetRow ?? 0) - (a.sheetRow ?? 0);
+  if (ad == null) return 1;
+  if (bd == null) return -1;
+  if (bd !== ad) return bd - ad;
+  return (b.sheetRow ?? 0) - (a.sheetRow ?? 0);
+}
+
+/**
+ * One entry per game that has stat rows, carrying its rows and who actually
+ * played. A game on the schedule with nothing logged doesn't appear — an empty
+ * box score is never something you meant to open.
+ */
+export function gameSummaries(rows, games) {
+  const byGame = new Map();
+  for (const row of rows) {
+    if (!byGame.has(row.gameId)) byGame.set(row.gameId, []);
+    byGame.get(row.gameId).push(row);
+  }
+
+  const summaries = [];
+  for (const [gameId, gameRows] of byGame) {
+    const game = games.find((g) => g.gameId === gameId);
+    const played = new Set(gameRows.filter((r) => !r.dnp).map((r) => r.playerId));
+
+    summaries.push({
+      gameId,
+      game,
+      date: gameRows[0].date,
+      sheetRow: game?.sheetRow ?? 0,
+      opponent: gameRows[0].opponent,
+      homeAway: gameRows[0].homeAway,
+      rows: gameRows,
+      played,
+      teamPoints: gameRows.reduce((sum, r) => sum + (r.stats.points ?? 0), 0),
+    });
+  }
+
+  return summaries.sort(compareGames);
+}
+
+/**
+ * Narrow games to those involving the selected players.
+ *
+ * `all`  — every selected player played
+ * `any`  — at least one selected player played
+ *
+ * A DNP row is not playing, which is the whole reason `played` excludes them.
+ * No selection means no narrowing.
+ */
+export function gamesForPlayers(summaries, playerIds, mode = 'all') {
+  if (!playerIds || playerIds.length === 0) return summaries;
+  return summaries.filter((s) => (mode === 'any'
+    ? playerIds.some((id) => s.played.has(id))
+    : playerIds.every((id) => s.played.has(id))));
+}
+
+/**
+ * Totals and per-game averages across the games shown.
+ *
+ * Averages divide by **distinct games**, never by player rows: three players
+ * across nine games is 27 rows, and dividing by 27 would understate every
+ * average threefold. A game whose only rows are DNPs is listed but doesn't
+ * count as played.
+ */
+export function summaryFor(summaries, playerIds = []) {
+  const selected = playerIds && playerIds.length > 0 ? new Set(playerIds) : null;
+
   const totals = {};
   for (const f of STAT_FIELDS) totals[f] = 0;
 
   let gp = 0;
-  for (const row of rows) {
-    if (!row.dnp) gp++;
-    for (const f of STAT_FIELDS) totals[f] += row.stats[f] == null ? 0 : row.stats[f];
+  let rowCount = 0;
+
+  for (const s of summaries) {
+    const rows = selected ? s.rows.filter((r) => selected.has(r.playerId)) : s.rows;
+    if (rows.some((r) => !r.dnp)) gp++;
+    for (const r of rows) {
+      rowCount++;
+      for (const f of STAT_FIELDS) totals[f] += r.stats[f] ?? 0;
+    }
   }
 
   const averages = {};
@@ -327,9 +322,102 @@ export function aggregate(rows) {
 
   return {
     gp,
-    games: rows.length,
+    games: summaries.length,
+    rowCount,
     totals,
     averages,
+    // From summed makes over summed attempts — never an average of percentages.
+    fgPct: pct(totals.fgm, totals.fga),
+    tpPct: pct(totals.tpm, totals.tpa),
+    ftPct: pct(totals.ftm, totals.fta),
+  };
+}
+
+/** Points scored by the selected players in one game. */
+export function selectedPoints(summary, playerIds = []) {
+  if (!playerIds || playerIds.length === 0) return null;
+  const selected = new Set(playerIds);
+  return summary.rows
+    .filter((r) => selected.has(r.playerId))
+    .reduce((sum, r) => sum + (r.stats.points ?? 0), 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Season record                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Wins, losses and average margin, from games where **both** scores are filled
+ * in — including games with no stat rows, since a result is a result whether or
+ * not anyone logged a box score.
+ *
+ * Returns null when no game has both, so the dashboard can omit the tile rather
+ * than show a meaningless 0–0.
+ */
+export function seasonRecord(games) {
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  let scored = 0;
+  let marginTotal = 0;
+
+  for (const g of games) {
+    const us = toNumber(g.teamScore);
+    const them = toNumber(g.oppScore);
+    if (us == null || them == null) continue;
+    scored++;
+    marginTotal += us - them;
+    if (us > them) wins++;
+    else if (us < them) losses++;
+    else ties++;
+  }
+
+  if (scored === 0) return null;
+
+  return {
+    wins, losses, ties, scored,
+    unscored: games.length - scored,
+    margin: marginTotal / scored,
+  };
+}
+
+/**
+ * Games where the recorded Team Score doesn't equal the points logged in
+ * StatsLog. Neither number is changed — one of them is wrong and only the coach
+ * knows which.
+ */
+export function scoreMismatches(summaries) {
+  const out = [];
+  for (const s of summaries) {
+    const recorded = toNumber(s.game?.teamScore);
+    if (recorded == null) continue;
+    if (recorded !== s.teamPoints) {
+      out.push({ gameId: s.gameId, opponent: s.opponent, recorded, logged: s.teamPoints });
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Aggregation helpers                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Totals for an arbitrary set of rows, counting games played as non-DNP rows. */
+export function aggregate(rows) {
+  const totals = {};
+  for (const f of STAT_FIELDS) totals[f] = 0;
+
+  let gp = 0;
+  for (const row of rows) {
+    if (!row.dnp) gp++;
+    for (const f of STAT_FIELDS) totals[f] += row.stats[f] ?? 0;
+  }
+
+  const averages = {};
+  for (const f of STAT_FIELDS) averages[f] = gp > 0 ? totals[f] / gp : null;
+
+  return {
+    gp, games: rows.length, totals, averages,
     fgPct: pct(totals.fgm, totals.fga),
     tpPct: pct(totals.tpm, totals.tpa),
     ftPct: pct(totals.ftm, totals.fta),
@@ -340,6 +428,17 @@ export function aggregate(rows) {
 export function pct(made, attempted) {
   if (!attempted || attempted <= 0) return null;
   return made / attempted;
+}
+
+/** Season leaders by total, for the dashboard. */
+export function leaders(rows, players, field = 'points') {
+  const byPlayer = new Map();
+  for (const row of rows) {
+    byPlayer.set(row.playerId, (byPlayer.get(row.playerId) ?? 0) + (row.stats[field] ?? 0));
+  }
+  return [...byPlayer.entries()]
+    .map(([playerId, total]) => ({ playerId, total, player: players.find((p) => p.playerId === playerId) }))
+    .sort((a, b) => b.total - a.total);
 }
 
 /* ------------------------------------------------------------------ */
@@ -358,6 +457,15 @@ export function displayName(player, mode = 'full') {
   if (mode === 'jersey') return player.jersey ? `#${player.jersey}` : initials(full);
   if (mode === 'initials') return initials(full);
   return full;
+}
+
+/** A short form for tight spaces: "John S." */
+export function shortName(player, mode = 'full') {
+  if (!player) return '—';
+  if (mode !== 'full') return displayName(player, mode);
+  const parts = String(player.fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return displayName(player, mode);
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
 }
 
 function initials(name) {

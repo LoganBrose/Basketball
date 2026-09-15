@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stats Tracker</title>
-<meta name="description" content="Per-player basketball stats from a published Google Sheet.">
+<meta name="description" content="Team and player basketball stats from a published Google Sheet.">
 <link rel="stylesheet" href="assets/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏀</text></svg>">
 </head>
@@ -23,17 +23,27 @@
 
 <main class="wrap">
   <h1>Stats Tracker</h1>
-  <p class="lede">Season numbers straight from the Google Sheet. Pick a player to see just their
-    stats, split them home vs away, and sort any column.</p>
+  <p class="lede">Pick any players to see their combined numbers, then open a game for the full
+    box score.</p>
 
   <div id="banner" class="banner" hidden></div>
 
+  <!-- ---------------- player filter ---------------- -->
   <section class="card">
-    <div class="filters">
-      <div class="field">
-        <label for="f-player">Player</label>
-        <select id="f-player"><option value="">All players</option></select>
+    <div class="chips-head">
+      <h2>Players</h2>
+      <div class="chips-actions">
+        <div class="segmented" role="group" aria-label="Match mode">
+          <button type="button" id="m-all" aria-pressed="true" title="Games where every selected player played">All</button>
+          <button type="button" id="m-any" aria-pressed="false" title="Games where at least one selected player played">Any</button>
+        </div>
+        <button type="button" class="btn" id="btn-clear">Clear</button>
       </div>
+    </div>
+    <div class="chips" id="player-chips"></div>
+    <p class="small muted" id="filter-hint"></p>
+
+    <div class="filters compact">
       <div class="field">
         <label for="f-ha">Home / Away</label>
         <select id="f-ha">
@@ -42,82 +52,28 @@
           <option value="Away">Away only</option>
         </select>
       </div>
-      <div class="field">
-        <label for="f-opp">Opponent</label>
-        <select id="f-opp"><option value="">All opponents</option></select>
-      </div>
-      <div class="field">
-        <label for="f-from">From</label>
-        <input type="date" id="f-from">
-      </div>
-      <div class="field">
-        <label for="f-to">To</label>
-        <input type="date" id="f-to">
-      </div>
     </div>
   </section>
 
+  <!-- ---------------- summary ---------------- -->
+  <section class="card" id="summary-card">
+    <div class="empty">Loading…</div>
+  </section>
+
+  <!-- ---------------- games ---------------- -->
   <div class="toolbar">
-    <div class="segmented" role="group" aria-label="View">
-      <button type="button" id="v-player" aria-pressed="true">Player</button>
-      <button type="button" id="v-team" aria-pressed="false">Team</button>
-    </div>
-    <button type="button" class="btn" id="btn-reset">Reset filters</button>
+    <h2 class="section-label" style="margin:0">Games</h2>
     <span class="spacer"></span>
     <button type="button" class="btn" id="btn-refresh">Refresh</button>
-    <a class="btn btn-primary" id="btn-log" href="#" hidden>Log a stat</a>
   </div>
 
-  <div id="view-player">
-    <section class="card" id="player-card">
-      <div class="empty">Loading…</div>
-    </section>
+  <div id="game-list"></div>
 
-    <h2 class="section-label">Game log</h2>
-    <div class="table-scroll">
-      <table id="gamelog">
-        <thead></thead>
-        <tbody></tbody>
-        <tfoot></tfoot>
-      </table>
-    </div>
-  </div>
-
-  <div id="view-team" hidden>
-    <div class="toolbar">
-      <div class="segmented" role="group" aria-label="Team numbers">
-        <button type="button" id="m-totals" aria-pressed="true">Totals</button>
-        <button type="button" id="m-avg" aria-pressed="false">Per game</button>
-      </div>
-      <span class="small muted" id="team-hint"></span>
-    </div>
-    <div class="table-scroll">
-      <table id="teamtable">
-        <thead></thead>
-        <tbody></tbody>
-        <tfoot></tfoot>
-      </table>
-    </div>
-  </div>
-
+  <!-- ---------------- connection ---------------- -->
   <h2 class="section-label">Sheet</h2>
-
   <details class="panel" id="conn-panel">
     <summary>Connection <span id="conn-pill" class="pill">checking…</span></summary>
     <div class="panel-body" id="conn-body"></div>
-  </details>
-
-  <details class="panel" id="formopts-panel">
-    <summary>Form dropdown options</summary>
-    <div class="panel-body">
-      <p class="muted small">Google Forms can't read your roster, so the Player and Game dropdowns
-        are maintained by hand. Copy these lists into the matching questions whenever the roster or
-        schedule changes.</p>
-      <h3>Player question options</h3>
-      <textarea class="options" id="opts-players" readonly aria-label="Player dropdown options"></textarea>
-      <h3 style="margin-top:14px">Game question options</h3>
-      <textarea class="options" id="opts-games" readonly aria-label="Game dropdown options"></textarea>
-    </div>
   </details>
 </main>
 
