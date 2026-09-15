@@ -1,0 +1,9 @@
+Players,,,
+"Legend: yellow cells = type your data. Player ID must be unique (P1, P2, P3...).",,,
+"Example rows use an ID starting with EX and are ignored by the site.",,,
+,,,
+Player ID,Full Name,Jersey Number,Position
+EX1,Example Player,00,G
+P1,John Smith,12,PG
+P2,Jane Doe,7,SF
+P3,Marcus Lee,23,C

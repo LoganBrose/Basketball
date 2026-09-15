@@ -1,0 +1,10 @@
+Games,,,
+"Legend: yellow cells = type your data. Game ID must be unique (G01, G02, G03...).",,,
+"Home/Away must be entered exactly as 'Home' or 'Away' (dropdown provided).",,,
+,,,
+Game ID,Date,Opponent,Home/Away
+EX1,9/1/2025,Example Opponent,Home
+G01,9/15/2025,Central,Home
+G02,2025-09-22,North,Away
+G03,9/29/2025,South,Home
+G04,10/6/2025,East,Away
