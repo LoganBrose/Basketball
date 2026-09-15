@@ -404,3 +404,250 @@ code {
   .card { padding: 14px; }
   th, td { padding: 8px 10px; }
 }
+
+/* ================= playbook ================= */
+
+.pb-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.pb-main { min-width: 0; }
+.pb-card { padding: 14px; }
+
+.pb-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.pb-tools .spacer { flex: 1 1 auto; }
+
+.pb-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.pb-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.btn.chip {
+  padding: 5px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 34px;
+}
+
+.btn.chip.off { border-color: var(--accent); color: var(--accent); }
+.btn.chip.def { font-style: italic; }
+.btn.btn-icon { padding: 6px 11px; font-size: 1rem; line-height: 1; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.danger { color: #b91c1c; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .btn.danger { color: #fca5a5; }
+}
+
+.court-wrap {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+}
+
+#court {
+  width: 100%;
+  max-height: 68vh;
+  touch-action: none; /* let the editor own drags instead of the browser scrolling */
+  cursor: default;
+}
+
+#court.drawing { cursor: crosshair; }
+#court.placing { cursor: text; }
+
+.pb-hint { margin: 8px 2px 0; min-height: 1.2em; }
+
+/* ---- court markings ---- */
+
+.floor { fill: var(--surface); stroke: var(--court-line); stroke-width: 0.18; }
+.lane { fill: var(--court-lane); stroke: var(--court-line); stroke-width: 0.16; }
+.court .line { fill: none; stroke: var(--court-line); stroke-width: 0.16; }
+.court .line.thick { stroke-width: 0.3; }
+.court .line.dashed { stroke-dasharray: 0.9 0.7; }
+.rim { fill: none; stroke: var(--accent); stroke-width: 0.2; }
+
+:root { --court-line: #b9b7b1; --court-lane: #f0efeb; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { --court-line: #45443f; --court-lane: #232320; }
+}
+
+/* ---- tokens ---- */
+
+.token { cursor: grab; }
+.token.ghost { opacity: 0.22; pointer-events: none; }
+.tok-body { fill: var(--surface); stroke: var(--text); stroke-width: 0.18; }
+.token.offense .tok-body { stroke: var(--accent); stroke-width: 0.22; }
+.tok-hit { fill: transparent; }
+.tok-x { fill: none; stroke: var(--text); stroke-width: 0.26; stroke-linecap: round; }
+.tok-label { fill: var(--text); font-weight: 700; font-family: inherit; }
+.tok-sub { fill: var(--muted); font-weight: 700; font-family: inherit; }
+.tok-ball { fill: var(--accent); }
+.tok-cone { fill: var(--flag); }
+.token.selected .tok-body,
+.token.selected .tok-hit { stroke: var(--accent); stroke-width: 0.3; stroke-dasharray: 0.5 0.35; }
+
+/* ---- arrows ---- */
+
+.arrow .stroke {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 0.26;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.arrow .hit { fill: none; stroke: transparent; stroke-width: 1.6; cursor: move; }
+.arrow.pass .stroke { stroke-dasharray: 1.1 0.75; }
+.arrow.screen .stroke.bar { stroke-width: 0.3; }
+.arrow.selected .stroke { stroke: var(--accent); }
+.arrow.ghost { opacity: 0.2; pointer-events: none; }
+.ah { fill: var(--text); stroke: none; }
+.arrow.selected .ah { fill: var(--accent); }
+.ah.ghost { fill: var(--muted); }
+
+.handle {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 0.18;
+  cursor: grab;
+}
+
+.handle.ctrl { fill: var(--accent); }
+
+.note-text {
+  fill: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  /* Outline the glyphs in the floor colour so a label stays readable
+     wherever it lands on the court. */
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 0.32;
+  stroke-linejoin: round;
+}
+.note { cursor: grab; }
+.note.ghost { opacity: 0.22; pointer-events: none; }
+.note.selected .note-text { fill: var(--accent); }
+
+/* ---- frames ---- */
+
+.pb-frames {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.frame-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.frame-chip {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.frame-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pb-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- side panel ---- */
+
+.pb-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pb-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.pb-side-head h2 { margin: 0; }
+.pb-side .field { margin-bottom: 10px; }
+.pb-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+input[type='text'], textarea {
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+  resize: vertical;
+}
+
+.pb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.pb-actions .btn { flex: 1 1 auto; }
+
+.play-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+
+.play-row + .play-row { border-top: 1px solid var(--border); }
+
+.play-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 9px 8px;
+  cursor: pointer;
+  border-radius: 8px;
+  font: inherit;
+  color: var(--text);
+}
+
+.play-open:hover { background: var(--surface-2); }
+.play-row.active .play-open { background: var(--accent-soft); }
+.play-name { display: block; font-weight: 600; font-size: 0.92rem; }
+.play-meta { display: block; font-size: 0.78rem; color: var(--muted); }
+.play-tags { display: block; font-size: 0.75rem; color: var(--accent); margin-top: 2px; }
+
+@media (max-width: 900px) {
+  .pb-layout { grid-template-columns: 1fr; }
+  #court { max-height: none; }
+}
+
+@media (max-width: 620px) {
+  /* The tool strip must never clip: a tool you can't reach is a tool you
+     don't have. Wrap it instead of letting it run off the card. */
+  .pb-tools .segmented { flex-wrap: wrap; width: 100%; }
+  .pb-tools .segmented button { flex: 1 1 auto; padding: 8px 10px; }
+}

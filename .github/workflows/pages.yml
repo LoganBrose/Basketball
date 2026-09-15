@@ -2,7 +2,9 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # Branch names are case-sensitive and this repo's default branch is "Main",
+    # so both spellings are listed rather than assuming the usual lowercase one.
+    branches: [main, Main]
   workflow_dispatch:
 
 # Pages needs these; the default GITHUB_TOKEN is read-only for contents.
