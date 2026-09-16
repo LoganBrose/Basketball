@@ -391,19 +391,42 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 
 | | Site password | Admin password |
 |---|---|---|
-| Open the pages | yes | yes |
-| Playbook, including the lineup names | yes | yes |
+| The playbook, including the lineup names | yes | yes |
 | **Read** the team playbook | yes | yes |
 | **Publish to or remove from** the team playbook | **no** | **yes** |
-| **Stats page, box scores, season tiles** | **no** | **yes** |
-| The sign-in log at `admin.html` | no | yes |
+| **Stats page, box scores, season tiles** | **not shown to exist** | **yes** |
+| The sign-in log at `admin.html` | **not shown to exist** | yes |
 
-**You can enter the admin password at the main sign-in popup** and be signed straight in as admin —
-one step, no second prompt. The separate admin prompt on Stats and `admin.html` is for upgrading a
-session that started with the team password, and for getting admin back after the 24 hours are up.
+**The sign-in popup is the only way to become admin.** Enter the admin name and the admin password
+there and you are signed straight in — one step. There is no second prompt anywhere, because a
+prompt would give the game away (see below).
 
 Knowing the admin *name* is not a credential: the admin password only works alongside it, and the
 team password under that name still gets you a coach's session and nothing more.
+
+### What a coach sees: a playbook, and nothing else
+
+Without an admin session the site is a playbook site. Not a locked-down one — a playbook one.
+
+- **The nav has one entry: Playbook.** The Stats and Admin links are created by JavaScript for an
+  admin only, so for everyone else they are not hidden or disabled, they are never built. `View
+  source` on a coach's browser shows a playbook site because that is all there is.
+- **`index.html`, `stats.html` and `admin.html` redirect to the playbook**, from a script at the top
+  of `<head>` — before the title commits and before the markup parses.
+- **Nothing says "admin".** No lock icons, no "needs the admin password", no disabled Publish button
+  labelled "Admin only". Publish is simply not rendered.
+- **When the admin session expires** after 24 hours, the site drops back to this view without
+  comment. The team sign-in keeps working for its full 30 days.
+
+This is about not advertising. It is not a second security boundary: the numbers are protected
+because the Apps Script refuses to hand them over without an admin token, and that check is on
+Google's side where a browser cannot reach it. The redirects would not stop someone determined —
+they stop the site from telling anyone there is something to be determined about.
+
+One edge worth knowing: on a browser's **very first** visit, if the first URL opened is `stats.html`
+itself, the head script has no way to know yet whether sign-in is even configured, so the redirect
+happens a moment later in JavaScript instead. The page stays blank throughout and no stats are ever
+requested. Every visit after that is caught in the `<head>`.
 
 Reading the team playbook takes only the site password, because it has to work on a phone with the
 password everyone has. **Changing it takes the admin password** — the shared password is shared, and

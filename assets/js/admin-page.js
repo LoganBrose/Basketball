@@ -1,24 +1,20 @@
 /**
  * Entry point for admin.html.
  *
- * The admin prompt prefills your name from the site session, so it must not be
- * built until that sign-in has happened — at load, it usually has not.
+ * The inline script in <head> has normally already redirected anyone without an
+ * admin session. This runs the same check again because a session can expire
+ * while a tab sits open, and because a backstop in the module is cheap.
  */
 
-import { CONFIG } from './config.js';
-import { isEnabled, readSession, sessionValid, siteMaxAge } from './gate.js';
+import { hasAdminSession } from './gate.js';
 import { mountAdminPage } from './admin.js';
 
 function start() {
-  const host = document.getElementById('admin-root');
-  const gate = CONFIG.gate || {};
-
-  if (isEnabled(gate) && !sessionValid(readSession(), siteMaxAge(gate))) {
-    document.addEventListener('bb:signedin', () => mountAdminPage(host), { once: true });
+  if (!hasAdminSession()) {
+    globalThis.location.replace('playbook.html');
     return;
   }
-
-  mountAdminPage(host);
+  mountAdminPage(document.getElementById('admin-root'));
 }
 
 if (document.readyState === 'loading') {

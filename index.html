@@ -1,6 +1,24 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script>
+/* Admin-only page. Leave before anything renders — before the title commits,
+   before the markup parses — so a coach never sees that this page exists.
+   Fails closed: a missing, malformed or expired session is not an admin.
+   `until` is stamped by gate.js so this has no config to duplicate. */
+(function () {
+  var ok = false;
+  try {
+    var s = JSON.parse(localStorage.getItem('bb.admin.v1') || 'null');
+    ok = !!(s && s.token && typeof s.until === 'number' && s.until > Date.now());
+    // With sign-in switched off there is no admin to be, and this page belongs
+    // to everyone again. An absent marker means gate.js has not run here yet,
+    // so leave the decision to the module rather than guessing.
+    if (localStorage.getItem('bb.gate.on') !== '1') ok = true;
+  } catch (e) { ok = false; }
+  if (!ok) location.replace('playbook.html');
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Coach Tools</title>
@@ -22,10 +40,8 @@ window.__gateFailsafe = setTimeout(function () {
 
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="index.html">🏀 Coach<span>Tools</span></a>
+    <a class="brand" href="playbook.html">🏀 Coach<span>Tools</span></a>
     <nav class="site-nav">
-      <a href="index.html" aria-current="page">Home</a>
-      <a href="stats.html">Stats</a>
       <a href="playbook.html">Playbook</a>
     </nav>
   </div>
@@ -60,7 +76,6 @@ window.__gateFailsafe = setTimeout(function () {
 
 <footer class="site-footer">
   <div class="wrap">
-    <a href="admin.html">Admin</a>
   </div>
 </footer>
 
