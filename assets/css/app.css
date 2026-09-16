@@ -992,3 +992,112 @@ details.card.collapsible > *:not(summary):first-of-type { margin-top: 14px; }
 details.card.collapsible > *:last-child { margin-bottom: 16px; }
 
 @media print { details.card.collapsible { display: none; } }
+
+/* ------------------------------------------------------------------ */
+/* Sign-in gate                                                        */
+/* ------------------------------------------------------------------ */
+
+/* visibility, not display: the playbook measures its court SVG at startup, and
+   a display:none ancestor would have it measure zero and render wrong the
+   moment the page is revealed. */
+html.gated body > *:not(.gate) { visibility: hidden; }
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+  overflow-y: auto;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.gate-card h1 { margin: 0 0 18px; font-size: 1.3rem; }
+
+.gate-form { display: flex; flex-direction: column; gap: 14px; }
+
+.gate-form input {
+  font: inherit;
+  padding: 10px 12px;
+  min-height: 44px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.gate-actions { display: flex; gap: 8px; }
+.gate-actions .btn { flex: 1; min-height: 44px; }
+
+.gate-error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.gate-card .small { margin: 16px 0 0; }
+
+/* Who is signed in, next to the nav. */
+.gate-who {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.gate-name { font-weight: 600; color: var(--text); }
+
+.linkish {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.site-footer {
+  margin: 48px 0 24px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.site-footer a { color: var(--muted); }
+
+/* The overlay is removed from the DOM before printing, but a print triggered
+   mid-sign-in should not paper the page with it either. */
+@media print {
+  .gate, .site-footer, .gate-who { display: none !important; }
+  html.gated body > * { visibility: visible !important; }
+}
+
+/* ---- admin ---- */
+
+.admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-head p { margin: 0; }
+
+.gate-card-inline { max-width: 380px; }
+.gate-card-inline h2 { margin: 0 0 4px; }
+.gate-card-inline .gate-form { margin-top: 14px; }
+
+/* A failed attempt should read as different at a glance, not just in its
+   Result column. */
+tr.flagged-row td { color: var(--flag); }

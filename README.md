@@ -245,10 +245,101 @@ document.
 
 ---
 
+## Sign-in
+
+The site can sit behind a **name and a shared password**, with every sign-in recorded where you can
+see it, and an **admin view** behind a second password.
+
+**Read this first, because it decides whether the rest is worth doing.** The popup is written in
+JavaScript and runs in the visitor's browser, so it can be bypassed with developer tools. It keeps
+casual visitors out of the pages. It is not what protects the numbers — that is the Apps Script,
+which refuses to hand over anything without a token it signed, and which never sees a password it
+did not check itself.
+
+| | Protected by | Real? |
+|---|---|---|
+| The pages | the popup | No — bypassable |
+| Stats data | the admin password, checked in Apps Script | **Yes**, once you stop publishing the sheet |
+| Player names | the site password, checked in Apps Script | **Yes**, same |
+| Plays in `plays/` | nothing yet | **No** — they are files in a public repo |
+
+The last two rows change in later commits. As things stand, **the published stats sheet and the
+plays are both readable by anyone with the link**, signed in or not.
+
+Two more things worth knowing:
+
+- **Names are self-reported.** Apps Script cannot read request headers, so the name and the browser
+  string are sent by the page. The log is a roster of who says they used the site — useful, but not
+  an audit trail.
+- **Nothing is stored that shouldn't be.** The admin password is never written to the browser, and
+  neither is the sign-in list.
+
+### Setup
+
+**1. Make a new, separate spreadsheet for the log.** Not the stats sheet — a fresh one. Copy its ID
+from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
+
+**2. Extensions → Apps Script**, delete whatever is in the editor, and paste all of
+[`apps-script/Code.gs`](apps-script/Code.gs).
+
+**3. Project Settings → Script Properties**, and add these:
+
+| Property | Value |
+|---|---|
+| `SITE_PASSWORD` | what the team types |
+| `ADMIN_PASSWORD` | what only you type |
+| `ADMIN_NAME` | your name — **the admin password only works alongside it** |
+| `LOG_SHEET_ID` | the ID from step 1 |
+| `TOKEN_SECRET` | any long random string; nobody types this |
+
+Optional: `SITE_DAYS` (default 30) and `ADMIN_HOURS` (default 24) set how long a sign-in lasts.
+
+**4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
+It names any property you have missed instead of leaving you to work it out from a broken page.
+
+**5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
+"Anyone" is about the *endpoint*, not your data — the script still refuses every request that
+doesn't carry a password or a token it signed. Copy the web app URL.
+
+**6. Paste that URL** into `gate.url` in `assets/js/config.js`. Leave it empty and the whole gate
+stays off and the site behaves exactly as before.
+
+### Changing something later
+
+> **To update the script: Deploy → Manage deployments → Edit (the pencil) → Version: New version →
+> Deploy.** That keeps the same URL.
+>
+> **"New deployment" makes a *different* URL**, which `config.js` is not pointing at — so the site
+> keeps talking to the old code and your change looks like it did nothing.
+
+To change a password, edit the Script Property. People stay signed in until their token expires, so
+if you need everyone out now, change `TOKEN_SECRET` too — that invalidates every token immediately.
+Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
+
+### The admin view
+
+`admin.html`, linked at the foot of every page. Your name is prefilled from your site sign-in; you
+type the admin password. It shows:
+
+- **People** — each name, how many times they signed in, how many attempts failed, and when they
+  were last seen.
+- **Every sign-in** — the full log, searchable, with failed attempts marked.
+
+**Failed attempts are logged too**, with whatever name was typed. After ten failures in a minute,
+further *failed* attempts are told to wait 30 seconds — but a correct password always works, even
+mid-slowdown, so nobody can shut the team out by guessing badly at the endpoint.
+
+A wrong admin name and a wrong admin password come back identically. There is no way to confirm the
+name without also having the password.
+
+---
+
 ## Privacy
 
-**A published Google Sheet and a GitHub Pages site are both readable by anyone with the link.**
-Neither has a login. If this will be shared beyond your staff, set `nameDisplay` in `config.js`:
+**Anything the site can reach without a token, anyone can reach.** A published Google Sheet has no
+login, and neither does a GitHub Pages site.
+
+`nameDisplay` in `config.js` keeps names off the page whatever else is set up:
 
 ```js
 nameDisplay: 'full'      // John Smith
@@ -256,7 +347,7 @@ nameDisplay: 'jersey'    // #12
 nameDisplay: 'initials'  // J.S.
 ```
 
-This changes what the site renders. The published sheet still contains full names.
+This changes what the site renders. A published sheet still contains full names.
 
 ---
 
@@ -283,6 +374,9 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/court.js` | court geometry in feet |
 | `assets/js/library.js` | play storage, search, import/export — pure and tested |
 | `assets/js/playbook.js` | the diagram editor |
+| `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
+| `assets/js/admin.js` | the admin prompt and the sign-in log |
+| `apps-script/Code.gs` | the sign-in backend you paste into Google |
 
 Sheet data is cached in `localStorage` after each successful load, so pages render instantly on a
 slow connection and still show the last known numbers if the sheet can't be reached.

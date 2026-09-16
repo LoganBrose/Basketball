@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coach Tools</title>
-<meta name="description" content="Basketball coaching tools: a stats tracker backed by a Google Sheet and a play diagram builder.">
+<title>Admin</title>
+<meta name="description" content="Who has signed in to Coach Tools.">
 <script>
 /* Hide the page until gate.js decides whether a sign-in is needed.
    The timer is the failsafe for one case only: gate.js never loading. It is
@@ -24,7 +24,7 @@ window.__gateFailsafe = setTimeout(function () {
   <div class="wrap">
     <a class="brand" href="index.html">🏀 Coach<span>Tools</span></a>
     <nav class="site-nav">
-      <a href="index.html" aria-current="page">Home</a>
+      <a href="index.html">Home</a>
       <a href="stats.html">Stats</a>
       <a href="playbook.html">Playbook</a>
     </nav>
@@ -32,40 +32,19 @@ window.__gateFailsafe = setTimeout(function () {
 </header>
 
 <main class="wrap">
-  <h1>Season</h1>
+  <h1>Admin</h1>
+  <p class="lede">Who has signed in, and when.</p>
 
-  <section class="card" id="dash">
-    <div class="statgrid" id="dash-grid"></div>
-    <p class="small muted" id="dash-note" hidden></p>
-
-    <h2 class="section-label">Season leaders</h2>
-    <div class="statgrid" id="dash-leaders"></div>
-  </section>
-
-  <h2 class="section-label">Tools</h2>
-  <div class="tools">
-    <a class="tool" href="stats.html">
-      <h2>Stats Tracker</h2>
-      <p>Pick any players to see their combined numbers, split home vs away, and open a game for
-        the full box score.</p>
-    </a>
-
-    <a class="tool" href="playbook.html">
-      <h2>Play Diagram Builder</h2>
-      <p>Drag players onto a court, draw cuts, passes, screens and dribbles across multiple steps,
-        and save each play as editable data.</p>
-    </a>
-  </div>
+  <div id="admin-root"></div>
 </main>
 
 <footer class="site-footer">
   <div class="wrap">
-    <a href="admin.html">Admin</a>
+    <a href="index.html">Back to the site</a>
   </div>
 </footer>
 
-
 <script type="module" src="assets/js/gate.js"></script>
-<script type="module" src="assets/js/home.js"></script>
+<script type="module" src="assets/js/admin-page.js"></script>
 </body>
 </html>
