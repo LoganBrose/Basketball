@@ -68,6 +68,9 @@ function doPost(e) {
       case 'signin': return json(handleSignIn(body));
       case 'admin': return json(handleAdmin(body));
       case 'data': return json(handleData(body));
+      case 'plays': return json(handlePlays(body));
+      case 'savePlay': return json(handleSavePlay(body));
+      case 'deletePlay': return json(handleDeletePlay(body));
       default: return json({ ok: false, reason: 'unknown_action' });
     }
   } catch (err) {
@@ -189,6 +192,142 @@ function handleData(body) {
   }
 
   return { ok: true, tabs: out };
+}
+
+/* ------------------------------------------------------------------ */
+/* The team playbook                                                   */
+/* ------------------------------------------------------------------ */
+
+var PLAYS_SHEET = 'Plays';
+var PLAYS_HEADERS = ['Id', 'Slug', 'Playbook', 'Name', 'Updated', 'UpdatedBy', 'JSON'];
+
+/**
+ * A Google Sheets cell holds 50,000 characters. Refusing at 45,000 with a
+ * sentence someone can act on beats writing a truncated cell that turns into
+ * unparseable JSON the next time the playbook is read.
+ */
+var MAX_PLAY_CHARS = 45000;
+
+function playsSheet() {
+  var ss = SpreadsheetApp.openById(prop('LOG_SHEET_ID'));
+  var sheet = ss.getSheetByName(PLAYS_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(PLAYS_SHEET);
+    sheet.appendRow(PLAYS_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/**
+ * Every play, for any signed-in coach.
+ *
+ * Reading takes a site token so the playbook works on a phone with the team
+ * password. Writing does not — see handleSavePlay.
+ */
+function handlePlays(body) {
+  var site = verifyToken(body.token, 'site');
+  var admin = verifyToken(body.token, 'admin');
+  if (!site.ok && !admin.ok) return { ok: false, reason: 'auth' };
+
+  var values = playsSheet().getDataRange().getDisplayValues();
+  var plays = [];
+
+  for (var i = 1; i < values.length; i++) {
+    var row = values[i];
+    if (!row[0]) continue;
+
+    var play;
+    try {
+      play = JSON.parse(row[6]);
+    } catch (err) {
+      continue;   // one unreadable row must not take the whole playbook down
+    }
+
+    plays.push({
+      id: row[0],
+      slug: row[1],
+      playbook: row[2],
+      name: row[3],
+      updated: row[4],
+      updatedBy: row[5],
+      play: play,
+    });
+  }
+
+  return { ok: true, plays: plays };
+}
+
+/**
+ * Add or replace one play. Admin only.
+ *
+ * Reading the playbook is a site token, but writing it is not: the shared
+ * password is shared, and the team playbook is not something everyone who
+ * knows it should be able to rewrite. A coach can still save as many plays as
+ * they like on their own device.
+ */
+function handleSavePlay(body) {
+  var admin = verifyToken(body.token, 'admin');
+  if (!admin.ok) return { ok: false, reason: 'auth' };
+
+  var play = body.play;
+  if (!play || !play.id) return { ok: false, reason: 'bad_request' };
+
+  var text = JSON.stringify(play);
+  if (text.length > MAX_PLAY_CHARS) return { ok: false, reason: 'too_big' };
+
+  // Two coaches saving at once can otherwise interleave between finding the row
+  // and writing it, and one save disappears with no error anywhere.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = playsSheet();
+    var row = [
+      play.id,
+      String(play.slug || ''),
+      String(play.playbook || 'general'),
+      String(play.name || 'Untitled play'),
+      new Date(),
+      admin.name,
+      text,
+    ];
+
+    var rowIndex = findPlayRow(sheet, play.id);
+    if (rowIndex === -1) sheet.appendRow(row);
+    else sheet.getRange(rowIndex, 1, 1, PLAYS_HEADERS.length).setValues([row]);
+
+    return { ok: true, id: play.id, updatedBy: admin.name };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Remove one play from the team playbook. Admin only. */
+function handleDeletePlay(body) {
+  var admin = verifyToken(body.token, 'admin');
+  if (!admin.ok) return { ok: false, reason: 'auth' };
+  if (!body.id) return { ok: false, reason: 'bad_request' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = playsSheet();
+    var rowIndex = findPlayRow(sheet, body.id);
+    // Already gone is the outcome that was asked for, not an error.
+    if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+    return { ok: true, id: body.id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 1-based sheet row for a play id, or -1. Must be called holding the lock. */
+function findPlayRow(sheet, id) {
+  var values = sheet.getDataRange().getDisplayValues();
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][0] === String(id)) return i + 1;
+  }
+  return -1;
 }
 
 /**
@@ -415,7 +554,8 @@ function checkSetup() {
   }
 
   logSheet();
-  Logger.log('Log sheet is reachable and the "%s" tab exists.', SIGNIN_SHEET);
+  playsSheet();
+  Logger.log('Log sheet is reachable; the "%s" and "%s" tabs exist.', SIGNIN_SHEET, PLAYS_SHEET);
 
   var stats = SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
   var names = Object.keys(TAB_ROLES);

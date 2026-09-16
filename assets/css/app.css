@@ -1105,3 +1105,11 @@ tr.flagged-row td { color: var(--flag); }
 /* A locked tool card still shows what exists, it just says what it needs. */
 .tool.locked { opacity: 0.75; }
 .tool.locked .lock { font-size: 0.8em; margin-left: 6px; }
+
+.play-action.danger { color: #b91c1c; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .play-action.danger { color: #fca5a5; }
+}
+
+#team-migrate { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+#team-migrate p { margin: 0; }

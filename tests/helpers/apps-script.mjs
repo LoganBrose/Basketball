@@ -24,7 +24,7 @@ const b64url = (buf) =>
 /**
  * @param {Object} [props] Script Properties to expose. Sensible defaults are
  *   filled in for anything omitted.
- * @returns {{fns: Object, rows: Array, cache: Map, props: Object, sheets: Object}}
+ * @returns {{fns: Object, rows: Array, cache: Map, locks: Object, sheets: Object, props: Object}}
  */
 export function loadCodeGs(props = {}) {
   const properties = {
@@ -39,6 +39,8 @@ export function loadCodeGs(props = {}) {
 
   const rows = [];
   const cache = new Map();
+  /** Lock bookkeeping — a lock left held blocks every later write. */
+  const locks = { taken: 0, released: 0 };
   /** Extra tabs, keyed by name, for the data actions added in later commits. */
   const sheets = {};
 
@@ -77,14 +79,17 @@ export function loadCodeGs(props = {}) {
     },
 
     SpreadsheetApp: {
-      openById: (id) => ({
+      openById: () => ({
         getSheetByName: (name) => (name === 'SignIns' ? logTab : sheets[name] || null),
         insertSheet: (name) => (name === 'SignIns' ? logTab : (sheets[name] = tabFor([]))),
       }),
     },
 
     LockService: {
-      getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }),
+      getScriptLock: () => ({
+        waitLock: () => { locks.taken++; },
+        releaseLock: () => { locks.released++; },
+      }),
     },
 
     ContentService: {
@@ -99,6 +104,7 @@ export function loadCodeGs(props = {}) {
   // Everything Code.gs defines that a test might want to reach.
   const exported = [
     'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleData',
+    'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'playsSheet',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];
 
@@ -109,15 +115,39 @@ export function loadCodeGs(props = {}) {
     `${src}\nreturn {${exported.map((n) => `${n}: typeof ${n} === 'function' ? ${n} : undefined`).join(',')}};`,
   );
 
-  return { fns: factory(...names.map((n) => globals[n])), rows, cache, props: properties, sheets };
+  return {
+    fns: factory(...names.map((n) => globals[n])),
+    rows, cache, locks, sheets, props: properties,
+  };
 }
 
-/** A minimal stand-in for a Google sheet tab holding fixed display values. */
+/**
+ * A stand-in for a Google sheet tab.
+ *
+ * Enough of the API for the plays actions: reading, appending, overwriting one
+ * row through getRange().setValues(), and deleting a row. Rows and columns are
+ * 1-based here exactly as they are in Sheets, because the code under test does
+ * its own index arithmetic and getting that wrong is precisely the kind of bug
+ * these tests exist to catch.
+ */
 export function tabFor(values) {
+  const asText = (v) => (v instanceof Date ? v.toISOString() : String(v == null ? '' : v));
+
   return {
-    getDataRange: () => ({ getDisplayValues: () => values }),
-    appendRow: (r) => values.push(r),
+    rows: values,
+    getDataRange: () => ({ getDisplayValues: () => values.map((r) => r.map(asText)) }),
+    appendRow: (r) => values.push(r.slice()),
     setFrozenRows: () => {},
+    deleteRow: (rowIndex) => values.splice(rowIndex - 1, 1),
+    getRange: (row, col, numRows, numCols) => ({
+      setValues: (block) => {
+        for (let r = 0; r < numRows; r++) {
+          const target = row - 1 + r;
+          while (values.length <= target) values.push([]);
+          for (let c = 0; c < numCols; c++) values[target][col - 1 + c] = block[r][c];
+        }
+      },
+    }),
   };
 }
 

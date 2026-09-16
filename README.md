@@ -207,18 +207,39 @@ computer but not my phone":
 - **On this device** — saved in *this browser only*. Another device will never see it.
 - **Team playbook** — published to the site, identical on every device.
 
-**To get a play onto your phone:** open it, press **Publish to team playbook**, and GitHub opens
-with the file already filled in — press Commit. A minute or two later it's under Team playbook
-everywhere. Re-publishing an edited play says **Update on team playbook** and edits the same file,
-because a play is matched by its id, not its filename. If a *different* play already owns that
-filename, you're asked to rename rather than silently overwriting it.
+**To get a play onto your phone:** open it and press **Publish to team playbook**. With sign-in
+configured that saves straight into the team sheet and everyone sees it on their next refresh — no
+commit, no wait. Re-publishing an edited play says **Update on team playbook** and replaces the same
+entry, because a play is matched by its id.
+
+**Remove from team playbook** takes it back off, after a confirm. Your copy on the device is kept, so
+a misclick costs nothing.
+
+Both of those need the **admin password**. Without it the button reads **Admin only**.
+
+A play that minifies to more than 45,000 characters is refused — that is the limit of a single sheet
+cell, and writing past it would corrupt the play rather than fail honestly. Split it into two plays
+or remove frames.
+
+> **Without sign-in configured**, publishing still works the old way: GitHub opens with the file
+> filled in and you press Commit. Everything below about `plays/` folders applies to that mode.
 
 A device play that's already published is badged **Published**, or **Edited since publishing** when
 your copy is newer, and offers **Remove local copy**.
 
+### Moving the playbook into the sheet
+
+While both exist, the editor shows an admin a one-click **Move team plays into the sheet**. It copies
+everything still in `plays/` across, matched by id, so clicking it twice is harmless.
+
+**`plays/` is deliberately still there.** Nothing is deleted until you have confirmed the move —
+open `playbook.html` in a private window or on a device that has never seen the plays and check the
+team playbook is complete. A browser that already has them cached will look fine either way, which
+is why the private window matters. Once you have confirmed, say so and `plays/` comes out.
+
 ### Multiple playbooks
 
-Each playbook is a folder on the site:
+*These apply when sign-in is not configured.* Each playbook is a folder on the site:
 
 ```
 plays/
@@ -271,10 +292,11 @@ did not check itself.
 | The pages | the popup | No — bypassable |
 | Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
 | Player names | the site password, checked in Apps Script | **Yes**, same |
-| Plays in `plays/` | nothing yet | **No** — they are files in a public repo |
+| Team playbook | the site password to read, the **admin password** to change | **Yes**, once `plays/` is deleted |
+| Plays still in `plays/` | nothing | **No** — files in a public repo, until they are removed |
 
-**The plays are still public.** That changes in a later commit. Everything else is now enforced by
-the script rather than by the page.
+**The plays are in both places right now.** The sheet is the live one; `plays/` is still there as a
+safety net until you have confirmed the move, and while it exists those files stay public.
 
 Two more things worth knowing:
 
@@ -341,8 +363,16 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 |---|---|---|
 | Open the pages | yes | yes |
 | Playbook, including the lineup names | yes | yes |
+| **Read** the team playbook | yes | yes |
+| **Publish to or remove from** the team playbook | **no** | **yes** |
 | **Stats page, box scores, season tiles** | **no** | **yes** |
 | The sign-in log at `admin.html` | no | yes |
+
+Reading the team playbook takes only the site password, because it has to work on a phone with the
+password everyone has. **Changing it takes the admin password** — the shared password is shared, and
+the team playbook is not something everyone who knows it should be able to rewrite. A coach without
+it still saves as many plays as they like on their own device; the Publish button simply reads
+**Admin only**.
 
 A site sign-in lasts 30 days; an admin session lasts 24 hours, and both limits are enforced inside
 the token's signature rather than by the browser. **Signing out of admin clears the numbers from the
@@ -409,6 +439,7 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/playbook.js` | the diagram editor |
 | `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
 | `assets/js/admin.js` | the admin prompt and the sign-in log |
+| `assets/js/teamplays.js` | the team playbook in the sheet, and the migration out of `plays/` |
 | `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 
