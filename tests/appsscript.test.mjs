@@ -253,3 +253,116 @@ test('an admin whose typed name contains a pipe is handled consistently', () => 
   assert.equal(res.ok, true, 'a pipe in the property is stripped the same way');
   assert.equal(piped.fns.verifyToken(res.token, 'admin').ok, true);
 });
+
+/* ---------------------------------------------------------------- */
+/* Either password at the front door                                 */
+/* ---------------------------------------------------------------- */
+
+/**
+ * These call handleSignIn end to end — real prop(), log(), makeToken(),
+ * CacheService and the log sheet, all through the shims. That is deliberate:
+ * an undefined variable inside the function (a dropped `var page`, say) throws
+ * a ReferenceError at runtime and would sail past any test that only exercised
+ * the comparison helpers.
+ */
+
+test('handleSignIn runs end to end on success, touching every helper it uses', () => {
+  const { fns, rows } = loadCodeGs();
+  const res = fns.handleSignIn({
+    name: 'Casey Jones', password: 'team-pw', page: 'stats.html', ua: 'TestBrowser/1.0',
+  });
+
+  assert.equal(res.ok, true);
+  assert.equal(res.name, 'Casey Jones');
+  assert.equal(fns.verifyToken(res.token, 'site').ok, true);
+
+  // The row proves page and ua reached log() rather than being undefined.
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0][1], 'Casey Jones');
+  assert.equal(rows[0][2], 'stats.html');
+  assert.equal(rows[0][3], 'TestBrowser/1.0');
+  assert.equal(rows[0][4], 'signin');
+});
+
+test('handleSignIn runs end to end on failure, touching every helper it uses', () => {
+  // failed() takes page and ua too, so the failure path needs its own check.
+  const { fns, rows, cache } = loadCodeGs();
+  const res = fns.handleSignIn({
+    name: 'Casey Jones', password: 'wrong', page: 'index.html', ua: 'TestBrowser/1.0',
+  });
+
+  assert.deepEqual(res, { ok: false, reason: 'password' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0][2], 'index.html');
+  assert.equal(rows[0][3], 'TestBrowser/1.0');
+  assert.equal(rows[0][4], 'failed:site');
+  assert.equal(cache.get('fails'), '1', 'the throttle counted it');
+});
+
+test('a sign-in with no page or ua still works rather than throwing', () => {
+  const { fns, rows } = loadCodeGs();
+  assert.equal(fns.handleSignIn({ name: 'Casey', password: 'team-pw' }).ok, true);
+  assert.equal(rows[0][2], '');
+  assert.equal(rows[0][3], '');
+});
+
+test('the admin password at the front door signs you straight in as admin', () => {
+  // The whole point: no second prompt for the person who owns the site.
+  const { fns, rows } = loadCodeGs();
+  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw', page: 'index.html' });
+
+  assert.equal(res.ok, true);
+  assert.equal(fns.verifyToken(res.token, 'site').ok, true, 'a site token as well');
+  assert.equal(fns.verifyToken(res.adminToken, 'admin').ok, true, 'and an admin token');
+  assert.equal(rows[0][4], 'admin', 'logged as an admin sign-in, not a plain one');
+});
+
+test('the admin name is matched the same way here as in handleAdmin', () => {
+  const { fns } = loadCodeGs();
+  const res = fns.handleSignIn({ name: '  logan   BROSE ', password: 'admin-pw' });
+  assert.equal(res.ok, true);
+  assert.equal(fns.verifyToken(res.adminToken, 'admin').ok, true);
+});
+
+test('the team password gets a site token and no admin token', () => {
+  const { fns, rows } = loadCodeGs();
+  const res = fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' });
+
+  assert.equal(res.ok, true);
+  assert.equal(res.adminToken, undefined, 'a coach must not be handed admin');
+  assert.equal(rows[0][4], 'signin');
+});
+
+test('the team password under the admin name still gets no admin token', () => {
+  // Knowing the admin name is not a credential.
+  const { fns } = loadCodeGs();
+  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'team-pw' });
+  assert.equal(res.ok, true);
+  assert.equal(res.adminToken, undefined);
+});
+
+test('the admin password under the wrong name is refused, indistinguishably', () => {
+  // Otherwise the front door becomes a way to confirm the admin name.
+  const { fns } = loadCodeGs();
+  const wrongName = fns.handleSignIn({ name: 'Someone Else', password: 'admin-pw' });
+  const wrongPassword = fns.handleSignIn({ name: 'Someone Else', password: 'nonsense' });
+
+  assert.deepEqual(wrongName, wrongPassword);
+  assert.deepEqual(wrongName, { ok: false, reason: 'password' });
+});
+
+test('an admin can still sign in while the slowdown is running', () => {
+  const { fns } = loadCodeGs();
+  for (let i = 0; i < 25; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+
+  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  assert.equal(res.ok, true);
+  assert.equal(fns.verifyToken(res.adminToken, 'admin').ok, true);
+});
+
+test('the front door works through doPost, not just called directly', () => {
+  const { fns } = loadCodeGs();
+  const res = post(fns, { action: 'signin', name: 'Logan Brose', password: 'admin-pw' });
+  assert.equal(res.ok, true);
+  assert.ok(res.adminToken, 'the admin token survives JSON serialisation');
+});
