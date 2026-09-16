@@ -254,3 +254,68 @@ test('the browser strips a pipe from a name, exactly as the script does', () => 
   assert.equal(cleanName('|'), '');
   assert.equal(cleanName('||  Casey  ||'), 'Casey');
 });
+
+/* ---------------------------------------------------------------- */
+/* Deciding who is an admin                                          */
+/* ---------------------------------------------------------------- */
+
+/**
+ * hasAdminSession is what the whole playbook-only view hangs off, so it fails
+ * closed: anything it cannot positively confirm is not an admin.
+ */
+async function withStoredAdmin(value, run) {
+  const store = new Map();
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  if (value !== undefined) store.set('bb.admin.v1', JSON.stringify(value));
+  try {
+    const { hasAdminSession } = await import('../assets/js/gate.js');
+    await run(hasAdminSession, store);
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  }
+}
+
+test('a stamped, unexpired admin session is an admin', async () => {
+  await withStoredAdmin(
+    { name: 'Logan Brose', token: 'tok', at: Date.now(), until: Date.now() + 60_000 },
+    (hasAdminSession) => assert.equal(hasAdminSession(), true),
+  );
+});
+
+test('an expired admin session is not', async () => {
+  await withStoredAdmin(
+    { name: 'Logan Brose', token: 'tok', at: Date.now() - 1000, until: Date.now() - 1 },
+    (hasAdminSession) => assert.equal(hasAdminSession(), false),
+  );
+});
+
+test('anything unconfirmable is not an admin', async () => {
+  // Fails closed. "Not sure" has to mean no, or the playbook-only view leaks.
+  const cases = [
+    [undefined, 'nothing stored'],
+    [null, 'a null session'],
+    [{ token: 'tok' }, 'no expiry stamped'],
+    [{ token: 'tok', until: 'soon' }, 'a non-numeric expiry'],
+    [{ token: '', until: Date.now() + 60_000 }, 'an empty token'],
+    [{ until: Date.now() + 60_000 }, 'no token at all'],
+  ];
+  for (const [value, why] of cases) {
+    await withStoredAdmin(value, (hasAdminSession) =>
+      assert.equal(hasAdminSession(), false, why));
+  }
+});
+
+test('a session written before `until` existed is not trusted', async () => {
+  // The old shape had only `at`. Treating it as valid would hand admin to a
+  // browser holding a session from before this rule existed.
+  await withStoredAdmin(
+    { name: 'Logan Brose', token: 'tok', at: Date.now() },
+    (hasAdminSession) => assert.equal(hasAdminSession(), false),
+  );
+});

@@ -366,3 +366,39 @@ test('the front door works through doPost, not just called directly', () => {
   assert.equal(res.ok, true);
   assert.ok(res.adminToken, 'the admin token survives JSON serialisation');
 });
+
+/* ---------------------------------------------------------------- */
+/* The sign-in log, by token                                         */
+/* ---------------------------------------------------------------- */
+
+test('an admin token fetches the sign-in log without the password', () => {
+  // The admin page no longer prompts, so the list has to be reachable with the
+  // token the sign-in already produced.
+  const { fns } = loadCodeGs();
+  fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' });
+  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+
+  const res = fns.handleSignIns({ token: admin.adminToken });
+  assert.equal(res.ok, true);
+  assert.ok(res.signIns.some((r) => r.name === 'Casey Jones'));
+});
+
+test('a site token cannot read the sign-in log', () => {
+  // It holds everyone's names.
+  const { fns } = loadCodeGs();
+  const site = fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' });
+  assert.deepEqual(fns.handleSignIns({ token: site.token }), { ok: false, reason: 'auth' });
+});
+
+test('no token, a junk token or an expired one cannot read it either', () => {
+  const { fns } = loadCodeGs();
+  for (const token of ['', undefined, 'garbage', fns.makeToken('admin', 'Logan Brose', Date.now() - 1)]) {
+    assert.deepEqual(fns.handleSignIns({ token }), { ok: false, reason: 'auth' });
+  }
+});
+
+test('the log action works through doPost', () => {
+  const { fns } = loadCodeGs();
+  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  assert.equal(post(fns, { action: 'signIns', token: admin.adminToken }).ok, true);
+});

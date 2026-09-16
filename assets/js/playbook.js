@@ -1109,6 +1109,14 @@ function renderTeamList() {
     status.textContent = '';
   }
 
+  // Only mention publishing to someone who can actually do it.
+  const deviceBlurb = $('#device-blurb');
+  if (deviceBlurb) {
+    deviceBlurb.textContent = canPublish()
+      ? 'Saved only in this browser. Publish to team playbook to see it on other devices.'
+      : 'Saved only in this browser.';
+  }
+
   const blurb = $('#team-blurb');
   if (blurb) {
     blurb.textContent = usingScript()
@@ -1340,14 +1348,17 @@ function refreshPublishToSheet(link, note) {
 
   const published = S.team.some((t) => t.id === S.play.id);
 
+  // Not disabled with a label — removed. "Admin only" would announce that an
+  // admin exists and that publishing is a thing this site does. A coach sees a
+  // playbook that saves to their device, and nothing else.
   if (!canPublish()) {
-    link.classList.add('disabled');
-    link.textContent = 'Admin only';
-    note.className = 'small muted';
-    note.textContent = 'Saving to the team playbook needs the admin password. This play is saved on this device.';
+    link.hidden = true;
+    note.hidden = true;
     return;
   }
 
+  link.hidden = false;
+  note.hidden = false;
   link.classList.remove('disabled');
   link.textContent = published ? 'Update on team playbook' : 'Publish to team playbook';
   note.className = 'small muted';

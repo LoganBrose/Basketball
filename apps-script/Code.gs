@@ -67,6 +67,7 @@ function doPost(e) {
     switch (body.action) {
       case 'signin': return json(handleSignIn(body));
       case 'admin': return json(handleAdmin(body));
+      case 'signIns': return json(handleSignIns(body));
       case 'data': return json(handleData(body));
       case 'plays': return json(handlePlays(body));
       case 'savePlay': return json(handleSavePlay(body));
@@ -163,6 +164,20 @@ function handleAdmin(body) {
     token: makeToken('admin', name, adminExpiry()),
     signIns: readSignIns(),
   };
+}
+
+/**
+ * The sign-in log, for a browser that already holds an admin token.
+ *
+ * The admin page used to ask for the password again to get this list. It no
+ * longer asks for anything — a prompt would tell a coach that an admin page
+ * exists — so the list has to be reachable with the token the sign-in already
+ * produced.
+ */
+function handleSignIns(body) {
+  var admin = verifyToken(body.token, 'admin');
+  if (!admin.ok) return { ok: false, reason: 'auth' };
+  return { ok: true, signIns: readSignIns() };
 }
 
 /* ------------------------------------------------------------------ */

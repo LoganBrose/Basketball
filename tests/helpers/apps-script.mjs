@@ -103,7 +103,7 @@ export function loadCodeGs(props = {}) {
 
   // Everything Code.gs defines that a test might want to reach.
   const exported = [
-    'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleData',
+    'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleSignIns', 'handleData',
     'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'playsSheet',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];

@@ -9,10 +9,9 @@
 import { CONFIG } from './config.js';
 import { loadAll, sheetProblems, forgetSensitiveCache } from './data.js';
 import {
-  isEnabled, readSession, readAdminSession, clearAdminSession, sessionValid,
-  siteMaxAge, adminMaxAge,
+  isEnabled, readSession, clearAdminSession, sessionValid, siteMaxAge,
+  hasAdminSession,
 } from './gate.js';
-import { mountAdminPrompt } from './admin.js';
 import {
   gamesForPlayers, summaryFor, selectedPoints, displayName,
   STAT_FIELDS, STAT_LABELS,
@@ -527,38 +526,28 @@ async function load() {
 
 /** These numbers are admin-only unless sign-in is switched off entirely. */
 function hasAdmin() {
-  const gate = CONFIG.gate || {};
-  if (!isEnabled(gate)) return true;
-  return sessionValid(readAdminSession(), adminMaxAge(gate));
+  return isEnabled(CONFIG.gate) ? hasAdminSession() : true;
 }
 
 /**
- * Ask for the admin password instead of the page.
+ * Leave, rather than explaining.
  *
- * loadAll() is never called from here. The script would refuse the request
- * anyway, but not asking at all is the difference between "you need the
- * password" and a page that looks broken.
+ * There is no prompt here any more. Offering one would tell a coach that a
+ * stats page exists and that a second password opens it, which is exactly what
+ * this page is now meant not to reveal. The only way in is the sign-in popup.
+ *
+ * The inline script in <head> normally catches this before anything parses;
+ * this is the backstop for a session that expired while the tab sat open.
  */
-function showAdminPrompt() {
-  $('#stats-body').hidden = true;
-  const host = $('#admin-gate');
-  host.hidden = false;
-
-  mountAdminPrompt(host, () => {
-    host.hidden = true;
-    $('#stats-body').hidden = false;
-    init();
-  }, {
-    title: 'These numbers need the admin password',
-    note: 'Player stats and box scores are admin-only.',
-  });
+function leave() {
+  globalThis.location.replace('playbook.html');
 }
 
 let wired = false;
 
 function init() {
   if (!hasAdmin()) {
-    showAdminPrompt();
+    leave();
     return;
   }
 
@@ -612,6 +601,8 @@ function renderAdminSignOut() {
  */
 function start() {
   const gate = CONFIG.gate || {};
+  if (!hasAdmin()) { leave(); return; }
+
   if (isEnabled(gate) && !sessionValid(readSession(), siteMaxAge(gate))) {
     document.addEventListener('bb:signedin', init, { once: true });
     return;

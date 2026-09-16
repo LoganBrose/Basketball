@@ -9,7 +9,7 @@
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
 import {
-  isEnabled, readSession, readAdminSession, sessionValid, siteMaxAge, adminMaxAge,
+  isEnabled, readSession, sessionValid, siteMaxAge, hasAdminSession,
 } from './gate.js';
 import { summaryFor, seasonRecord, leaders, displayName } from './model.js';
 
@@ -63,38 +63,23 @@ function renderError(message) {
 
 /** The season tiles are stats, so they follow the same rule the stats page does. */
 function hasAdmin() {
-  const gate = CONFIG.gate || {};
-  if (!isEnabled(gate)) return true;
-  return sessionValid(readAdminSession(), adminMaxAge(gate));
+  return isEnabled(CONFIG.gate) ? hasAdminSession() : true;
 }
 
 /**
- * Without the admin password: no tiles, and the Stats card carries a lock.
+ * Leave rather than render a reduced version of this page.
  *
- * The card stays visible rather than disappearing. A coach who signed in with
- * the team password should see that the stats exist and need a second password,
- * not a site that looks like it lost a feature.
+ * A locked dashboard would still announce that a dashboard exists. The inline
+ * script in <head> normally gets here first; this is the backstop for a session
+ * that expired while the tab sat open.
  */
-function renderLocked() {
-  // Not hidden outright: an empty "Season" heading reads as a broken page. Say
-  // what it needs instead.
-  $('#dash-grid').replaceChildren();
-  document.querySelector('#dash .section-label')?.remove();
-  const note = $('#dash-note');
-  note.textContent = 'Season numbers need the admin password.';
-  note.hidden = false;
-
-  const card = document.querySelector('.tool[href="stats.html"]');
-  if (card && !card.querySelector('.lock')) {
-    card.classList.add('locked');
-    card.querySelector('h2')?.append(el('span', { class: 'lock', text: '🔒', attrs: { 'aria-label': 'needs the admin password' } }));
-    card.append(el('p', { class: 'small muted', text: 'Needs the admin password.' }));
-  }
+function leave() {
+  globalThis.location.replace('playbook.html');
 }
 
 async function init() {
   if (!hasAdmin()) {
-    renderLocked();
+    leave();
     return;
   }
 
@@ -173,6 +158,8 @@ async function init() {
  */
 function start() {
   const gate = CONFIG.gate || {};
+  if (!hasAdmin()) { leave(); return; }
+
   if (isEnabled(gate) && !sessionValid(readSession(), siteMaxAge(gate))) {
     document.addEventListener('bb:signedin', init, { once: true });
     return;

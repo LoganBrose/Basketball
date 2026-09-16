@@ -94,6 +94,33 @@ export const writeAdminSession = (session) => writeKey(ADMIN_KEY, session);
 export const clearAdminSession = () => dropKey(ADMIN_KEY);
 
 /**
+ * Store an admin session, stamped with the moment it stops counting.
+ *
+ * `until` exists so the inline script in each admin page's <head> can decide
+ * whether to redirect without importing config — it runs before any module and
+ * has no way to read `adminHours`. Writing the deadline once, here, keeps that
+ * number in one place instead of duplicating it into three HTML files.
+ */
+export function saveAdminSession(name, token, gateCfg = CONFIG.gate) {
+  const at = Date.now();
+  return writeAdminSession({ name, token, at, until: at + adminMaxAge(gateCfg) });
+}
+
+/**
+ * Is this browser holding a usable admin session?
+ *
+ * Fails closed. A missing, malformed, expired or pre-`until` session is not an
+ * admin — the whole playbook-only view hangs off this answer, so "not sure"
+ * has to mean no.
+ */
+export function hasAdminSession(now = Date.now()) {
+  const session = readAdminSession();
+  if (!session || typeof session.token !== 'string' || session.token === '') return false;
+  if (typeof session.until !== 'number' || !isFinite(session.until)) return false;
+  return session.until > now;
+}
+
+/**
  * Is a stored session still offerable?
  *
  * This only decides whether the browser bothers trying. The expiry that matters
@@ -264,6 +291,49 @@ function announce(name) {
 }
 
 /** "Casey Jones · Sign out" alongside the nav. */
+/**
+ * Add the admin-only links to the nav.
+ *
+ * The static markup carries Playbook and nothing else, so for anyone without an
+ * admin session these elements are never created. That is the requirement: not
+ * hidden, not disabled, not present. `view-source` on a coach's browser shows a
+ * playbook site, because that is all there is.
+ */
+function renderNav() {
+  const nav = document.querySelector('.site-header .site-nav');
+  // With sign-in switched off there is no admin to distinguish from anyone
+  // else, so the site is whole again and every link belongs.
+  if (!nav || !(isEnabled(CONFIG.gate) ? hasAdminSession() : true)) return;
+
+  const here = (globalThis.location?.pathname || '').split('/').pop() || 'index.html';
+  const links = [
+    ['index.html', 'Home'],
+    ['stats.html', 'Stats'],
+    ['admin.html', 'Admin'],
+  ];
+
+  // Prepending walks backwards, so the leading links are reversed first to
+  // land as Home, Stats, Playbook — reading order, not insertion order.
+  const lead = links.filter(([href]) => href !== 'admin.html').reverse();
+  for (const [href, label] of [...lead, ...links.filter(([h]) => h === 'admin.html')]) {
+    const a = el('a', { text: label, attrs: { href } });
+    if (href === here) a.setAttribute('aria-current', 'page');
+    if (href === 'admin.html') nav.append(a);
+    else nav.insertBefore(a, nav.firstChild);
+  }
+
+  // The brand goes to the dashboard for an admin and stays on the playbook for
+  // everyone else, so it never bounces through a redirect.
+  const brand = document.querySelector('.site-header .brand');
+  if (brand) brand.setAttribute('href', 'index.html');
+
+  // The footer link is created the same way, for the same reason.
+  const footer = document.querySelector('.site-footer .wrap');
+  if (footer && !footer.querySelector('a[href="admin.html"]')) {
+    footer.append(el('a', { text: 'Admin', attrs: { href: 'admin.html' } }));
+  }
+}
+
 function renderSignedIn(name) {
   const nav = document.querySelector('.site-header .site-nav');
   if (!nav || document.getElementById('gate-who')) return;
@@ -354,11 +424,12 @@ function buildOverlay(gate, onDone) {
       // Stats, the dashboard tiles and Publish all read bb.admin.v1, so they
       // unlock on the next render with nothing else to do.
       if (result.data.adminToken) {
-        writeAdminSession({ name: signedInAs, token: result.data.adminToken, at: Date.now() });
+        saveAdminSession(signedInAs, result.data.adminToken);
       }
       overlay.remove();
       reveal();
       renderSignedIn(signedInAs);
+      renderNav();
       announce(signedInAs);
       if (onDone) onDone();
       return;
@@ -384,8 +455,24 @@ function buildOverlay(gate, onDone) {
 export function mount() {
   const gate = CONFIG.gate || {};
 
+  // Leave a marker saying whether sign-in is switched on at all.
+  //
+  // The inline redirect in each admin page's <head> runs before any module and
+  // cannot read config, so without this it would bounce stats.html even on a
+  // site with no sign-in configured. It is only a hint for the earliest
+  // possible redirect: every page re-checks properly in its own module, so
+  // editing this marker by hand gains nothing.
+  try {
+    globalThis.localStorage?.setItem('bb.gate.on', isEnabled(gate) ? '1' : '0');
+  } catch {
+    /* blocked storage — the module checks still run */
+  }
+
   if (!isEnabled(gate)) {
+    // With sign-in switched off there is no admin to distinguish, so the whole
+    // site is visible exactly as it was before any of this existed.
     reveal();
+    renderNav();
     announce('');
     return;
   }
@@ -394,6 +481,7 @@ export function mount() {
   if (sessionValid(session, siteMaxAge(gate))) {
     reveal();
     renderSignedIn(session.name);
+    renderNav();
     announce(session.name);
     return;
   }

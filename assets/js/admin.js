@@ -1,19 +1,17 @@
 /**
- * Admin sign-in and the sign-in log.
+ * The sign-in log.
  *
- * Two things live here because two pages need them: this page, and (from the
- * next commit) the stats page, which is admin-only. Building the prompt twice
- * would mean two places to get the "name AND password" rule wrong.
+ * Reached only with an admin session, and it never asks for one — a prompt here
+ * would tell a coach that an admin page exists. Anyone without the session is
+ * sent to the playbook before this module runs.
  *
- * Nothing on this page is cached. The admin password is never stored anywhere,
- * and neither are the returned rows — they are other people's names, and a
- * shared laptop should not keep them after you close the tab.
+ * Nothing is cached. The rows are other people's names, and a shared laptop
+ * should not keep them after the tab closes.
  */
 
 import { CONFIG } from './config.js';
 import {
-  adminSignIn, cleanName, readSession, readAdminSession, writeAdminSession,
-  clearAdminSession, messageFor, isEnabled,
+  callScript, cleanName, readAdminSession, clearAdminSession, hasAdminSession,
 } from './gate.js';
 
 const el = (tag, opts = {}, ...children) => {
@@ -61,107 +59,6 @@ export function filterRows(rows, query) {
   if (q === '') return rows || [];
   return (rows || []).filter((row) =>
     [row.name, row.page, row.at, row.result].some((v) => String(v || '').toLowerCase().includes(q)));
-}
-
-/* ------------------------------------------------------------------ */
-/* The prompt                                                          */
-/* ------------------------------------------------------------------ */
-
-/**
- * Render an admin password prompt into `host`, calling `onSuccess(data)` with
- * the script's reply once it is accepted.
- *
- * The name is prefilled from the site session, so in practice you type only the
- * password — but it is still sent and still checked, because the script refuses
- * the admin password under any other name.
- */
-export function mountAdminPrompt(host, onSuccess, opts = {}) {
-  host.replaceChildren();
-
-  const gate = CONFIG.gate || {};
-  if (!isEnabled(gate)) {
-    host.append(el('div', { class: 'card' },
-      el('h2', { text: 'Sign-in is not set up' }),
-      el('p', { class: 'small muted', text: 'Add your Apps Script web app URL to gate.url in assets/js/config.js. See the README.' })));
-    return;
-  }
-
-  const card = el('div', { class: 'card gate-card-inline' });
-  card.append(el('h2', { text: opts.title || 'Admin password' }));
-  if (opts.note) card.append(el('p', { class: 'small muted', text: opts.note }));
-
-  const form = el('form', { class: 'gate-form' });
-
-  const nameField = el('div', { class: 'field' });
-  nameField.append(el('label', { text: 'Your name', attrs: { for: 'admin-name' } }));
-  const nameInput = el('input', {
-    attrs: { type: 'text', id: 'admin-name', autocomplete: 'name', maxlength: '60' },
-  });
-  nameInput.value = readSession()?.name || '';
-  nameField.append(nameInput);
-
-  const pwField = el('div', { class: 'field' });
-  pwField.append(el('label', { text: 'Admin password', attrs: { for: 'admin-pw' } }));
-  const pwInput = el('input', {
-    attrs: { type: 'password', id: 'admin-pw', autocomplete: 'current-password' },
-  });
-  pwField.append(pwInput);
-
-  const submit = el('button', { class: 'btn btn-primary', text: 'Unlock', attrs: { type: 'submit' } });
-  const retry = el('button', { class: 'btn', text: 'Retry', attrs: { type: 'button', hidden: 'hidden' } });
-  retry.addEventListener('click', () => form.requestSubmit());
-
-  const error = el('p', { class: 'gate-error', attrs: { role: 'alert', hidden: 'hidden' } });
-
-  form.append(nameField, pwField, el('div', { class: 'gate-actions' }, submit, retry), error);
-  card.append(form);
-  // Stops the next person walking into the same wall this was written for.
-  card.append(el('p', {
-    class: 'small muted',
-    text: 'Tip: you can enter the admin password at the main sign-in instead, and skip this step.',
-  }));
-  host.append(card);
-
-  const show = (text) => {
-    error.textContent = text;
-    error.hidden = text === '';
-  };
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    submit.disabled = true;
-    submit.textContent = 'Checking…';
-    retry.hidden = true;
-    show('');
-
-    const result = await adminSignIn(nameInput.value, pwInput.value);
-    const message = messageFor(result);
-
-    submit.disabled = false;
-    submit.textContent = 'Unlock';
-
-    if (message.kind === 'ok') {
-      writeAdminSession({
-        name: result.data.name || cleanName(nameInput.value),
-        token: result.data.token,
-        at: Date.now(),
-      });
-      onSuccess(result.data);
-      return;
-    }
-
-    retry.hidden = message.kind !== 'network';
-    // A wrong name and a wrong password come back identically from the script,
-    // so there is nothing more specific to say here, and saying more would
-    // undo that on the client.
-    show(message.kind === 'password' ? "That name and password don't match." : message.text);
-    if (message.kind !== 'network') {
-      pwInput.value = '';
-      pwInput.focus();
-    }
-  });
-
-  setTimeout(() => (nameInput.value ? pwInput : nameInput).focus(), 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -262,16 +159,37 @@ export function renderSignIns(host, rows) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Wire up whichever of the two states applies. Re-prompts when the stored admin
- * session has aged out — the script would refuse the token anyway, so asking is
- * better than showing an error.
+ * Show the log, or leave.
+ *
+ * There is no password prompt here. Asking would tell a coach that an admin
+ * page exists and that a second password opens it — which is the one thing this
+ * page must not reveal. The sign-in popup is the only way in, and the token it
+ * produced is what fetches the list.
  */
-export function mountAdminPage(host) {
-  // Always ask, even with a valid admin session in storage. The sign-in rows
-  // are deliberately never cached, so there is nothing to show without a fresh
-  // call, and that call needs the password.
-  mountAdminPrompt(host, (data) => renderSignIns(host, data.signIns || []), {
-    title: 'Admin password',
-    note: 'The admin password only works with the admin name.',
-  });
+export async function mountAdminPage(host) {
+  if (!hasAdminSession()) {
+    globalThis.location.replace('playbook.html');
+    return;
+  }
+
+  host.replaceChildren();
+  host.append(el('p', { class: 'small muted', text: 'Loading…' }));
+
+  const session = readAdminSession();
+  const result = await callScript(CONFIG.gate.url, { action: 'signIns', token: session.token });
+
+  // An expired token mid-session lands here rather than at the head redirect.
+  if (result.ok && result.data?.reason === 'auth') {
+    clearAdminSession();
+    globalThis.location.replace('playbook.html');
+    return;
+  }
+
+  if (!result.ok || !result.data?.ok) {
+    host.replaceChildren();
+    host.append(el('p', { class: 'card small missing', text: "Couldn't load the sign-in log. Try again." }));
+    return;
+  }
+
+  renderSignIns(host, result.data.signIns || []);
 }
