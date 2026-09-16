@@ -13,13 +13,17 @@ dependencies.
 ## How the stats tracker works
 
 ```
-you type rows  ─▶  StatsLog tab  ──published CSV──▶  index.html + stats.html
-                        ▲
+you type rows  ─▶  StatsLog tab  ──Apps Script──▶  index.html + stats.html
+                        ▲              (admin token required)
      Players + Games tabs supply names, dates, opponents
 ```
 
 Stats are typed straight into the **StatsLog** tab. There is no Google Form. The site reads three
 tabs, joins them by ID in your browser, and **never writes anything**.
+
+With sign-in configured, the sheet is **not published** and the Apps Script is the only route to it.
+With `gate.url` empty, the site reads the published CSV exactly as it always did — the two paths end
+in the same parser, so the numbers cannot differ between them.
 
 ---
 
@@ -49,7 +53,10 @@ Notes:
   shows a win-loss record and average margin. Leave them blank and those tiles simply don't appear.
 - `PlayerSummary` isn't read at all — the site reimplements it.
 
-### 2. Publish the sheet
+### 2. Publish the sheet — *only if you are not using sign-in*
+
+**Skip this section entirely if you have set up [Sign-in](#sign-in).** With `gate.url` configured the
+sheet must **not** be published; the Apps Script reads it directly, and that is the whole point.
 
 **File → Share → Publish to web.**
 
@@ -60,6 +67,9 @@ Notes:
 Publishing is where the delay comes from: **published CSVs can take up to about 5 minutes to reflect
 an edit.** A stat you just typed may not appear on the next refresh. The Connection panel repeats
 this next to the last refresh time, so a slow update is never mistaken for a broken site.
+
+The Apps Script route has no such lag — it reads the live sheet, so an edit shows on the next
+refresh. That is a real reason to prefer it beyond the privacy.
 
 ### 3. Point the site at your sheet — `assets/js/config.js`
 
@@ -105,7 +115,7 @@ Per tab it shows:
 
 | Line | What to check |
 |---|---|
-| **Source** | `gviz (by tab name)` or `published CSV (by gid)` with an HTTP status. If it says **bundled sample data**, the sheet wasn't reachable |
+| **Source** | `Apps Script` when sign-in is configured, otherwise `gviz (by tab name)` or `published CSV (by gid)` with an HTTP status. If it says **bundled sample data**, the sheet wasn't reachable |
 | **URL** | Exactly what was fetched — paste it into a browser tab to see what Google returns |
 | **Header row** | The sheet row the headers were found on. "not found" means the key column is missing or misspelled |
 | **Matched** | The columns it recognised, using your sheet's own spelling |
@@ -259,12 +269,12 @@ did not check itself.
 | | Protected by | Real? |
 |---|---|---|
 | The pages | the popup | No — bypassable |
-| Stats data | the admin password, checked in Apps Script | **Yes**, once you stop publishing the sheet |
+| Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
 | Player names | the site password, checked in Apps Script | **Yes**, same |
 | Plays in `plays/` | nothing yet | **No** — they are files in a public repo |
 
-The last two rows change in later commits. As things stand, **the published stats sheet and the
-plays are both readable by anyone with the link**, signed in or not.
+**The plays are still public.** That changes in a later commit. Everything else is now enforced by
+the script rather than by the page.
 
 Two more things worth knowing:
 
@@ -290,6 +300,7 @@ from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
 | `ADMIN_PASSWORD` | what only you type |
 | `ADMIN_NAME` | your name — **the admin password only works alongside it** |
 | `LOG_SHEET_ID` | the ID from step 1 |
+| `STATS_SHEET_ID` | your existing stats spreadsheet's ID — the one with `StatsLog`, `Players` and `Games` |
 | `TOKEN_SECRET` | any long random string; nobody types this |
 
 Optional: `SITE_DAYS` (default 30) and `ADMIN_HOURS` (default 24) set how long a sign-in lasts.
@@ -304,6 +315,14 @@ doesn't carry a password or a token it signed. Copy the web app URL.
 **6. Paste that URL** into `gate.url` in `assets/js/config.js`. Leave it empty and the whole gate
 stays off and the site behaves exactly as before.
 
+**7. Stop publishing the stats sheet.** In the stats spreadsheet: **File → Share → Publish to web →
+Stop publishing**. Do this *last*, and only once step 6 is live and you have confirmed the stats page
+loads behind the admin password — until then the site is still reading the published CSV, and
+unpublishing early just makes it fall back to sample data.
+
+Once unpublished, **the numbers are only reachable with the admin password.** There is no public URL
+left to hand them over; the script is the only route, and it checks a token it signed itself.
+
 ### Changing something later
 
 > **To update the script: Deploy → Manage deployments → Edit (the pencil) → Version: New version →
@@ -315,6 +334,20 @@ stays off and the site behaves exactly as before.
 To change a password, edit the Script Property. People stay signed in until their token expires, so
 if you need everyone out now, change `TOKEN_SECRET` too — that invalidates every token immediately.
 Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
+
+### Which password opens what
+
+| | Site password | Admin password |
+|---|---|---|
+| Open the pages | yes | yes |
+| Playbook, including the lineup names | yes | yes |
+| **Stats page, box scores, season tiles** | **no** | **yes** |
+| The sign-in log at `admin.html` | no | yes |
+
+A site sign-in lasts 30 days; an admin session lasts 24 hours, and both limits are enforced inside
+the token's signature rather than by the browser. **Signing out of admin clears the numbers from the
+page and from the browser's storage**, so a shared laptop does not keep a box score after you walk
+away. The stats are never written to storage under this setup at all; only the roster is.
 
 ### The admin view
 
@@ -376,6 +409,7 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/playbook.js` | the diagram editor |
 | `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
 | `assets/js/admin.js` | the admin prompt and the sign-in log |
+| `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 
 Sheet data is cached in `localStorage` after each successful load, so pages render instantly on a

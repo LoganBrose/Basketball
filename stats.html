@@ -38,6 +38,11 @@ window.__gateFailsafe = setTimeout(function () {
 
   <div id="banner" class="banner" hidden></div>
 
+  <!-- Stands in for the whole page when there is no admin session. -->
+  <div id="admin-gate" hidden></div>
+
+  <div id="stats-body">
+
   <!-- ---------------- player filter ---------------- -->
   <section class="card">
     <div class="chips-head">
@@ -88,6 +93,7 @@ window.__gateFailsafe = setTimeout(function () {
       <summary>Connection <span id="conn-pill" class="pill">checking…</span></summary>
       <div class="panel-body" id="conn-body"></div>
     </details>
+  </div>
   </div>
 </main>
 

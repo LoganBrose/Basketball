@@ -16,6 +16,7 @@ import {
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
+import { isEnabled, readSession, sessionValid, siteMaxAge } from './gate.js';
 import { shortName } from './model.js';
 import { printPlay, printPlaybook } from './printout.js';
 import {
@@ -738,7 +739,10 @@ function renderLineup() {
  */
 async function loadRoster() {
   try {
-    const data = await loadAll();
+    // The roster only. Asking for StatsLog with a site token would be refused,
+    // and would look like a broken sheet rather than a page asking for
+    // something it has no business seeing.
+    const data = await loadAll({ tabs: ['players'] });
     S.roster = data.players || [];
     S.rosterError = S.roster.length === 0 ? null : null;
   } catch (err) {
@@ -1460,7 +1464,25 @@ function init() {
   setTool('select');
   renderLineup();
   renderTeam();
-  loadRoster();
+  whenSignedIn(loadRoster);
+}
+
+/**
+ * Run `fn` once a site session exists — the roster needs a token.
+ *
+ * gate.js announces the sign-in, but modules execute in document order and
+ * gate.js comes first, so on a reload with a session already stored it has
+ * announced before this module exists. Checking the session directly covers
+ * that; the listener covers the first sign-in of the visit. With the gate off
+ * there is nothing to wait for.
+ */
+function whenSignedIn(fn) {
+  const gate = CONFIG.gate || {};
+  if (!isEnabled(gate) || sessionValid(readSession(), siteMaxAge(gate))) {
+    fn();
+    return;
+  }
+  document.addEventListener('bb:signedin', fn, { once: true });
 }
 
 init();

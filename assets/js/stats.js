@@ -7,7 +7,12 @@
  */
 
 import { CONFIG } from './config.js';
-import { loadAll, sheetProblems } from './data.js';
+import { loadAll, sheetProblems, forgetSensitiveCache } from './data.js';
+import {
+  isEnabled, readSession, readAdminSession, clearAdminSession, sessionValid,
+  siteMaxAge, adminMaxAge,
+} from './gate.js';
+import { mountAdminPrompt } from './admin.js';
 import {
   gamesForPlayers, summaryFor, selectedPoints, displayName,
   STAT_FIELDS, STAT_LABELS,
@@ -316,19 +321,34 @@ function renderConnection() {
 
   const { meta, issues, mismatches, discovery, usingSample } = state.data;
   const entries = Object.entries(meta);
-  const { blocking, quality } = sheetProblems(state.data);
+  const { blocking, auth, quality } = sheetProblems(state.data);
 
   // While everything is healthy this whole section stays out of the way. It
   // reappears the moment it has something to tell you — which is the only time
   // it's worth reading.
   const section = $('#sheet-section');
   section.hidden = blocking.length === 0 && quality === 0;
-  if (blocking.length > 0) $('#conn-panel').open = true;
+  if (blocking.length > 0 || auth.length > 0) $('#conn-panel').open = true;
 
-  pill.className = 'pill ' + (blocking.length ? 'warn' : quality ? 'warn' : 'ok');
-  pill.textContent = blocking.length
-    ? blocking[0]
-    : (quality ? `${quality} thing${quality > 1 ? 's' : ''} to check` : (usingSample ? 'sample data' : 'connected'));
+  pill.className = 'pill ' + (blocking.length || auth.length || quality ? 'warn' : 'ok');
+  pill.textContent = auth.length
+    ? 'sign-in needed'
+    : (blocking.length
+      ? blocking[0]
+      : (quality ? `${quality} thing${quality > 1 ? 's' : ''} to check` : (usingSample ? 'sample data' : 'connected')));
+
+  // A refused token is not a broken sheet. Listing it among missing columns
+  // would send you hunting through a spreadsheet that is perfectly fine.
+  if (auth.length) {
+    const box = el('div', { class: 'tab-report' });
+    box.append(el('h3', { text: 'Sign-in' }));
+    for (const line of auth) box.append(el('p', { class: 'small', text: line }));
+    box.append(el('p', {
+      class: 'small muted',
+      text: 'Nothing is wrong with the sheet — the script refused the request. Sign in again, or use the admin password.',
+    }));
+    body.append(box);
+  }
 
   for (const [name, m] of entries) {
     body.append(tabReport(name, m));
@@ -347,7 +367,9 @@ function renderConnection() {
   const fetchedAt = entries.map(([, m]) => m.fetchedAt).filter(Boolean).sort().pop();
   body.append(el('p', {
     class: 'small muted',
-    text: `Last refresh: ${fetchedAt ? new Date(fetchedAt).toLocaleString() : '—'} — published sheets can lag up to ~5 minutes behind an edit, so a stat you just typed may not be here yet.`,
+    text: state.data?.source === 'apps-script'
+      ? `Last refresh: ${fetchedAt ? new Date(fetchedAt).toLocaleString() : '—'} — read straight from the sheet, so an edit shows on the next refresh.`
+      : `Last refresh: ${fetchedAt ? new Date(fetchedAt).toLocaleString() : '—'} — published sheets can lag up to ~5 minutes behind an edit, so a stat you just typed may not be here yet.`,
   }));
 
   issueBlock(body, 'Duplicate rows replaced by a later row', issues.superseded, (s) =>
@@ -503,7 +525,48 @@ async function load() {
   render();
 }
 
+/** These numbers are admin-only unless sign-in is switched off entirely. */
+function hasAdmin() {
+  const gate = CONFIG.gate || {};
+  if (!isEnabled(gate)) return true;
+  return sessionValid(readAdminSession(), adminMaxAge(gate));
+}
+
+/**
+ * Ask for the admin password instead of the page.
+ *
+ * loadAll() is never called from here. The script would refuse the request
+ * anyway, but not asking at all is the difference between "you need the
+ * password" and a page that looks broken.
+ */
+function showAdminPrompt() {
+  $('#stats-body').hidden = true;
+  const host = $('#admin-gate');
+  host.hidden = false;
+
+  mountAdminPrompt(host, () => {
+    host.hidden = true;
+    $('#stats-body').hidden = false;
+    init();
+  }, {
+    title: 'These numbers need the admin password',
+    note: 'Player stats and box scores are admin-only.',
+  });
+}
+
+let wired = false;
+
 function init() {
+  if (!hasAdmin()) {
+    showAdminPrompt();
+    return;
+  }
+
+  // init() runs again when the admin prompt is satisfied. Wiring the controls
+  // twice would make one click on Clear fire two renders.
+  if (wired) { load(); return; }
+  wired = true;
+
   readUrl();
 
   $('#m-all').addEventListener('click', () => { state.mode = 'all'; writeUrl(); render(); });
@@ -516,7 +579,44 @@ function init() {
   $('#f-ha').addEventListener('change', (e) => { state.ha = e.target.value; writeUrl(); render(); });
   $('#btn-refresh').addEventListener('click', () => { setBanner('Refreshing…'); load(); });
 
+  renderAdminSignOut();
   load();
 }
 
-init();
+/**
+ * Signing out of admin has to take the numbers with it — off the screen and out
+ * of storage. A shared laptop keeping a box score after sign-out would undo the
+ * point of asking for a password at all.
+ */
+function renderAdminSignOut() {
+  const gate = CONFIG.gate || {};
+  if (!isEnabled(gate) || $('#admin-out')) return;
+
+  const btn = el('button', { class: 'btn', text: 'Sign out of admin', attrs: { type: 'button', id: 'admin-out' } });
+  btn.addEventListener('click', () => {
+    clearAdminSession();
+    forgetSensitiveCache();
+    globalThis.location.reload();
+  });
+  $('.chips-actions')?.append(btn);
+}
+
+/**
+ * The admin prompt prefills your name from the site session, so nothing here
+ * can run until that sign-in has happened.
+ *
+ * gate.js announces it — but modules execute in document order and gate.js
+ * comes first, so on a reload with a session already stored it has announced
+ * before this module exists. Listening alone would wait forever. Check for the
+ * session directly, and only wait for the event when there genuinely isn't one.
+ */
+function start() {
+  const gate = CONFIG.gate || {};
+  if (isEnabled(gate) && !sessionValid(readSession(), siteMaxAge(gate))) {
+    document.addEventListener('bb:signedin', init, { once: true });
+    return;
+  }
+  init();
+}
+
+start();

@@ -1101,3 +1101,7 @@ html.gated body > *:not(.gate) { visibility: hidden; }
 /* A failed attempt should read as different at a glance, not just in its
    Result column. */
 tr.flagged-row td { color: var(--flag); }
+
+/* A locked tool card still shows what exists, it just says what it needs. */
+.tool.locked { opacity: 0.75; }
+.tool.locked .lock { font-size: 0.8em; margin-left: 6px; }

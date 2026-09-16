@@ -12,6 +12,7 @@
  *   ADMIN_PASSWORD  what only you type
  *   ADMIN_NAME      the admin password only works alongside this name
  *   LOG_SHEET_ID    a NEW, SEPARATE spreadsheet for the sign-in log
+ *   STATS_SHEET_ID  the spreadsheet holding StatsLog, Players and Games
  *   TOKEN_SECRET    any long random string
  *
  * Optional, if you want different session lengths than the defaults:
@@ -66,6 +67,7 @@ function doPost(e) {
     switch (body.action) {
       case 'signin': return json(handleSignIn(body));
       case 'admin': return json(handleAdmin(body));
+      case 'data': return json(handleData(body));
       default: return json({ ok: false, reason: 'unknown_action' });
     }
   } catch (err) {
@@ -135,6 +137,58 @@ function handleAdmin(body) {
     token: makeToken('admin', name, adminExpiry()),
     signIns: readSignIns(),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Reading the stats sheet                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which token each tab needs.
+ *
+ * Players is readable with a site token because the playbook's lineup selector
+ * needs names, and every signed-in coach uses it. The numbers are admin-only.
+ */
+var TAB_ROLES = {
+  StatsLog: 'admin',
+  Games: 'admin',
+  Players: 'site',
+};
+
+/**
+ * Return whole tabs as 2D arrays.
+ *
+ * getDisplayValues(), not getValues(): the site's header-row detection and date
+ * parsing were written against what the CSV export produced, which is the
+ * displayed text. Handing over raw values would turn every date into a Date
+ * object and every number into a float, and the parser would have to grow a
+ * second set of rules for no gain.
+ */
+function handleData(body) {
+  var tabs = Array.isArray(body.tabs) ? body.tabs : [];
+  if (tabs.length === 0) return { ok: false, reason: 'bad_request' };
+
+  var site = verifyToken(body.token, 'site');
+  var admin = verifyToken(body.token, 'admin');
+  if (!site.ok && !admin.ok) return { ok: false, reason: 'auth' };
+
+  // One refusal for the whole request rather than a partial answer: a page that
+  // asked for stats and silently got back only the roster would render an empty
+  // season as though it were a real one.
+  for (var i = 0; i < tabs.length; i++) {
+    var need = TAB_ROLES[tabs[i]];
+    if (!need) return { ok: false, reason: 'bad_request' };
+    if (need === 'admin' && !admin.ok) return { ok: false, reason: 'auth' };
+  }
+
+  var ss = SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
+  var out = {};
+  for (var j = 0; j < tabs.length; j++) {
+    var sheet = ss.getSheetByName(tabs[j]);
+    out[tabs[j]] = sheet ? sheet.getDataRange().getDisplayValues() : null;
+  }
+
+  return { ok: true, tabs: out };
 }
 
 /**
@@ -348,7 +402,8 @@ function numberProp(key, fallback) {
  * decode a failure from the site, and it triggers the authorization prompt.
  */
 function checkSetup() {
-  var required = ['SITE_PASSWORD', 'ADMIN_PASSWORD', 'ADMIN_NAME', 'LOG_SHEET_ID', 'TOKEN_SECRET'];
+  var required = ['SITE_PASSWORD', 'ADMIN_PASSWORD', 'ADMIN_NAME', 'LOG_SHEET_ID',
+    'STATS_SHEET_ID', 'TOKEN_SECRET'];
   var missing = required.filter(function (key) {
     var v = PropertiesService.getScriptProperties().getProperty(key);
     return v == null || v === '';
@@ -360,6 +415,15 @@ function checkSetup() {
   }
 
   logSheet();
-  Logger.log('Setup looks good. Log sheet is reachable and the "%s" tab exists.', SIGNIN_SHEET);
+  Logger.log('Log sheet is reachable and the "%s" tab exists.', SIGNIN_SHEET);
+
+  var stats = SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
+  var names = Object.keys(TAB_ROLES);
+  for (var i = 0; i < names.length; i++) {
+    var tab = stats.getSheetByName(names[i]);
+    Logger.log('Stats tab "%s": %s', names[i], tab ? 'found' : 'MISSING');
+  }
+
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
+  Logger.log('Setup looks good.');
 }

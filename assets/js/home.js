@@ -8,6 +8,9 @@
 
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
+import {
+  isEnabled, readSession, readAdminSession, sessionValid, siteMaxAge, adminMaxAge,
+} from './gate.js';
 import { summaryFor, seasonRecord, leaders, displayName } from './model.js';
 
 const $ = (s) => document.querySelector(s);
@@ -58,7 +61,43 @@ function renderError(message) {
   note.hidden = false;
 }
 
+/** The season tiles are stats, so they follow the same rule the stats page does. */
+function hasAdmin() {
+  const gate = CONFIG.gate || {};
+  if (!isEnabled(gate)) return true;
+  return sessionValid(readAdminSession(), adminMaxAge(gate));
+}
+
+/**
+ * Without the admin password: no tiles, and the Stats card carries a lock.
+ *
+ * The card stays visible rather than disappearing. A coach who signed in with
+ * the team password should see that the stats exist and need a second password,
+ * not a site that looks like it lost a feature.
+ */
+function renderLocked() {
+  // Not hidden outright: an empty "Season" heading reads as a broken page. Say
+  // what it needs instead.
+  $('#dash-grid').replaceChildren();
+  document.querySelector('#dash .section-label')?.remove();
+  const note = $('#dash-note');
+  note.textContent = 'Season numbers need the admin password.';
+  note.hidden = false;
+
+  const card = document.querySelector('.tool[href="stats.html"]');
+  if (card && !card.querySelector('.lock')) {
+    card.classList.add('locked');
+    card.querySelector('h2')?.append(el('span', { class: 'lock', text: '🔒', attrs: { 'aria-label': 'needs the admin password' } }));
+    card.append(el('p', { class: 'small muted', text: 'Needs the admin password.' }));
+  }
+}
+
 async function init() {
+  if (!hasAdmin()) {
+    renderLocked();
+    return;
+  }
+
   renderSkeleton();
 
   let data;
@@ -125,4 +164,20 @@ async function init() {
   $('#dash').hidden = false;
 }
 
-init();
+/**
+ * The dashboard reads stats, so it cannot run before sign-in has happened.
+ *
+ * gate.js announces it, but modules execute in document order and gate.js comes
+ * first — on a reload with a session already stored it has announced before this
+ * module exists. So check the session directly and only wait when there is none.
+ */
+function start() {
+  const gate = CONFIG.gate || {};
+  if (isEnabled(gate) && !sessionValid(readSession(), siteMaxAge(gate))) {
+    document.addEventListener('bb:signedin', init, { once: true });
+    return;
+  }
+  init();
+}
+
+start();

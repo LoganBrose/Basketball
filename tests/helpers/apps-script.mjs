@@ -32,6 +32,7 @@ export function loadCodeGs(props = {}) {
     ADMIN_PASSWORD: 'admin-pw',
     ADMIN_NAME: 'Logan Brose',
     LOG_SHEET_ID: 'log-id',
+    STATS_SHEET_ID: 'stats-id',
     TOKEN_SECRET: 'a-long-random-secret-value',
     ...props,
   };
@@ -97,7 +98,7 @@ export function loadCodeGs(props = {}) {
 
   // Everything Code.gs defines that a test might want to reach.
   const exported = [
-    'doPost', 'doGet', 'handleSignIn', 'handleAdmin',
+    'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleData',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];
 
