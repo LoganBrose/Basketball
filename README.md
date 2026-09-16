@@ -104,6 +104,36 @@ Push to the default branch. The workflow runs the unit tests, regenerates the te
 and deploys the repo root. If Pages is set to "Deploy from branch" instead of "GitHub Actions", that
 works too — the repo is a plain static site.
 
+#### Cloudflare Pages
+
+GitHub Pages is primary and none of this changes it. To also serve from Cloudflare:
+
+| Setting | Value |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Production branch | `Main` — **capital M**, the field is case-sensitive |
+
+`npm run build` regenerates the playbook index and then copies the servable files into `dist/`.
+Both halves matter:
+
+- **The index rebuild** is not optional. The GitHub Action does not run on Cloudflare, so without it
+  a play published as a file would land in `plays/` and never appear under Team playbook.
+- **`dist/` is the actual fix** for the build error Cloudflare reports:
+
+  > `Asset too large. […] /opt/buildhome/repo/node_modules/workerd/bin/workerd with a size of
+  > 125 MiB`
+
+  Cloudflare treats the repo root as its assets directory and walks everything under it, including
+  the `node_modules` its own build container installs — where a 125 MiB binary blows past a 25 MiB
+  per-asset limit. Publishing from `dist/` puts `node_modules` outside the assets directory
+  entirely. It isn't excluded; it simply isn't there.
+
+`tools/build-site.mjs` copies a **whitelist**, so a new top-level folder stays unpublished unless
+someone adds it. That also stops `tests/`, `tools/`, `apps-script/` and `package.json` being served,
+which they currently are on GitHub Pages and never should have been. The script fails the build if
+any file in `dist/` exceeds 25 MiB, rather than letting Cloudflare discover it.
+
 ---
 
 ## Reading the Connection panel
@@ -419,6 +449,7 @@ This changes what the site renders. A published sheet still contains full names.
 ```sh
 npm test          # unit tests — no dependencies, uses node --test
 npm run serve     # http://localhost:8000
+npm run build     # regenerate the plays index, then fill dist/
 npm run build:plays
 ```
 
