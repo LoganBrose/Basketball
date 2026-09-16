@@ -116,12 +116,29 @@ export function isSkippableKey(keyValue) {
 /**
  * Parse one tab's CSV into canonical records.
  *
+ * A thin wrapper: everything below the CSV step is shared with the Apps Script
+ * source, which already has rows and never sees CSV text.
+ *
  * @returns {{records: Object[], headerRow: number, headers: string[],
  *            matched: Object<string,string>, missing: string[],
  *            unknownColumns: string[], skipped: number, error: string|null}}
  */
 export function parseTab(csvText, schema) {
-  const rows = parseCSV(csvText);
+  return parseRows(parseCSV(csvText), schema);
+}
+
+/**
+ * Turn a tab's rows into canonical records.
+ *
+ * Both sources land here — the published CSV after parsing, and the Apps Script
+ * response, which arrives as 2D arrays already. Header detection, the EX skip
+ * and the field mapping therefore cannot drift between them, because there is
+ * only one of each.
+ *
+ * @param {string[][]} rows
+ * @param {Object} schema one of SCHEMAS
+ */
+export function parseRows(rows, schema) {
   const headerRow = findHeaderRow(rows, schema.key);
 
   if (headerRow === -1) {
@@ -275,6 +292,15 @@ function cacheGet(name) {
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
+  }
+}
+
+/** Forget a cached tab — used when signing out of admin on a shared device. */
+export function dropCached(name) {
+  try {
+    globalThis.localStorage?.removeItem(CACHE_PREFIX + name);
+  } catch {
+    /* blocked storage — nothing cached to forget */
   }
 }
 

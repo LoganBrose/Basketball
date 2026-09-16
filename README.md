@@ -13,13 +13,17 @@ dependencies.
 ## How the stats tracker works
 
 ```
-you type rows  ─▶  StatsLog tab  ──published CSV──▶  index.html + stats.html
-                        ▲
+you type rows  ─▶  StatsLog tab  ──Apps Script──▶  index.html + stats.html
+                        ▲              (admin token required)
      Players + Games tabs supply names, dates, opponents
 ```
 
 Stats are typed straight into the **StatsLog** tab. There is no Google Form. The site reads three
 tabs, joins them by ID in your browser, and **never writes anything**.
+
+With sign-in configured, the sheet is **not published** and the Apps Script is the only route to it.
+With `gate.url` empty, the site reads the published CSV exactly as it always did — the two paths end
+in the same parser, so the numbers cannot differ between them.
 
 ---
 
@@ -49,7 +53,10 @@ Notes:
   shows a win-loss record and average margin. Leave them blank and those tiles simply don't appear.
 - `PlayerSummary` isn't read at all — the site reimplements it.
 
-### 2. Publish the sheet
+### 2. Publish the sheet — *only if you are not using sign-in*
+
+**Skip this section entirely if you have set up [Sign-in](#sign-in).** With `gate.url` configured the
+sheet must **not** be published; the Apps Script reads it directly, and that is the whole point.
 
 **File → Share → Publish to web.**
 
@@ -60,6 +67,9 @@ Notes:
 Publishing is where the delay comes from: **published CSVs can take up to about 5 minutes to reflect
 an edit.** A stat you just typed may not appear on the next refresh. The Connection panel repeats
 this next to the last refresh time, so a slow update is never mistaken for a broken site.
+
+The Apps Script route has no such lag — it reads the live sheet, so an edit shows on the next
+refresh. That is a real reason to prefer it beyond the privacy.
 
 ### 3. Point the site at your sheet — `assets/js/config.js`
 
@@ -94,6 +104,36 @@ Push to the default branch. The workflow runs the unit tests, regenerates the te
 and deploys the repo root. If Pages is set to "Deploy from branch" instead of "GitHub Actions", that
 works too — the repo is a plain static site.
 
+#### Cloudflare Pages
+
+GitHub Pages is primary and none of this changes it. To also serve from Cloudflare:
+
+| Setting | Value |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Production branch | `Main` — **capital M**, the field is case-sensitive |
+
+`npm run build` regenerates the playbook index and then copies the servable files into `dist/`.
+Both halves matter:
+
+- **The index rebuild** is not optional. The GitHub Action does not run on Cloudflare, so without it
+  a play published as a file would land in `plays/` and never appear under Team playbook.
+- **`dist/` is the actual fix** for the build error Cloudflare reports:
+
+  > `Asset too large. […] /opt/buildhome/repo/node_modules/workerd/bin/workerd with a size of
+  > 125 MiB`
+
+  Cloudflare treats the repo root as its assets directory and walks everything under it, including
+  the `node_modules` its own build container installs — where a 125 MiB binary blows past a 25 MiB
+  per-asset limit. Publishing from `dist/` puts `node_modules` outside the assets directory
+  entirely. It isn't excluded; it simply isn't there.
+
+`tools/build-site.mjs` copies a **whitelist**, so a new top-level folder stays unpublished unless
+someone adds it. That also stops `tests/`, `tools/`, `apps-script/` and `package.json` being served,
+which they currently are on GitHub Pages and never should have been. The script fails the build if
+any file in `dist/` exceeds 25 MiB, rather than letting Cloudflare discover it.
+
 ---
 
 ## Reading the Connection panel
@@ -105,7 +145,7 @@ Per tab it shows:
 
 | Line | What to check |
 |---|---|
-| **Source** | `gviz (by tab name)` or `published CSV (by gid)` with an HTTP status. If it says **bundled sample data**, the sheet wasn't reachable |
+| **Source** | `Apps Script` when sign-in is configured, otherwise `gviz (by tab name)` or `published CSV (by gid)` with an HTTP status. If it says **bundled sample data**, the sheet wasn't reachable |
 | **URL** | Exactly what was fetched — paste it into a browser tab to see what Google returns |
 | **Header row** | The sheet row the headers were found on. "not found" means the key column is missing or misspelled |
 | **Matched** | The columns it recognised, using your sheet's own spelling |
@@ -197,18 +237,39 @@ computer but not my phone":
 - **On this device** — saved in *this browser only*. Another device will never see it.
 - **Team playbook** — published to the site, identical on every device.
 
-**To get a play onto your phone:** open it, press **Publish to team playbook**, and GitHub opens
-with the file already filled in — press Commit. A minute or two later it's under Team playbook
-everywhere. Re-publishing an edited play says **Update on team playbook** and edits the same file,
-because a play is matched by its id, not its filename. If a *different* play already owns that
-filename, you're asked to rename rather than silently overwriting it.
+**To get a play onto your phone:** open it and press **Publish to team playbook**. With sign-in
+configured that saves straight into the team sheet and everyone sees it on their next refresh — no
+commit, no wait. Re-publishing an edited play says **Update on team playbook** and replaces the same
+entry, because a play is matched by its id.
+
+**Remove from team playbook** takes it back off, after a confirm. Your copy on the device is kept, so
+a misclick costs nothing.
+
+Both of those need the **admin password**. Without it the button reads **Admin only**.
+
+A play that minifies to more than 45,000 characters is refused — that is the limit of a single sheet
+cell, and writing past it would corrupt the play rather than fail honestly. Split it into two plays
+or remove frames.
+
+> **Without sign-in configured**, publishing still works the old way: GitHub opens with the file
+> filled in and you press Commit. Everything below about `plays/` folders applies to that mode.
 
 A device play that's already published is badged **Published**, or **Edited since publishing** when
 your copy is newer, and offers **Remove local copy**.
 
+### Moving the playbook into the sheet
+
+While both exist, the editor shows an admin a one-click **Move team plays into the sheet**. It copies
+everything still in `plays/` across, matched by id, so clicking it twice is harmless.
+
+**`plays/` is deliberately still there.** Nothing is deleted until you have confirmed the move —
+open `playbook.html` in a private window or on a device that has never seen the plays and check the
+team playbook is complete. A browser that already has them cached will look fine either way, which
+is why the private window matters. Once you have confirmed, say so and `plays/` comes out.
+
 ### Multiple playbooks
 
-Each playbook is a folder on the site:
+*These apply when sign-in is not configured.* Each playbook is a folder on the site:
 
 ```
 plays/
@@ -245,10 +306,133 @@ document.
 
 ---
 
+## Sign-in
+
+The site can sit behind a **name and a shared password**, with every sign-in recorded where you can
+see it, and an **admin view** behind a second password.
+
+**Read this first, because it decides whether the rest is worth doing.** The popup is written in
+JavaScript and runs in the visitor's browser, so it can be bypassed with developer tools. It keeps
+casual visitors out of the pages. It is not what protects the numbers — that is the Apps Script,
+which refuses to hand over anything without a token it signed, and which never sees a password it
+did not check itself.
+
+| | Protected by | Real? |
+|---|---|---|
+| The pages | the popup | No — bypassable |
+| Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
+| Player names | the site password, checked in Apps Script | **Yes**, same |
+| Team playbook | the site password to read, the **admin password** to change | **Yes**, once `plays/` is deleted |
+| Plays still in `plays/` | nothing | **No** — files in a public repo, until they are removed |
+
+**The plays are in both places right now.** The sheet is the live one; `plays/` is still there as a
+safety net until you have confirmed the move, and while it exists those files stay public.
+
+Two more things worth knowing:
+
+- **Names are self-reported.** Apps Script cannot read request headers, so the name and the browser
+  string are sent by the page. The log is a roster of who says they used the site — useful, but not
+  an audit trail.
+- **Nothing is stored that shouldn't be.** The admin password is never written to the browser, and
+  neither is the sign-in list.
+
+### Setup
+
+**1. Make a new, separate spreadsheet for the log.** Not the stats sheet — a fresh one. Copy its ID
+from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
+
+**2. Extensions → Apps Script**, delete whatever is in the editor, and paste all of
+[`apps-script/Code.gs`](apps-script/Code.gs).
+
+**3. Project Settings → Script Properties**, and add these:
+
+| Property | Value |
+|---|---|
+| `SITE_PASSWORD` | what the team types |
+| `ADMIN_PASSWORD` | what only you type |
+| `ADMIN_NAME` | your name — **the admin password only works alongside it** |
+| `LOG_SHEET_ID` | the ID from step 1 |
+| `STATS_SHEET_ID` | your existing stats spreadsheet's ID — the one with `StatsLog`, `Players` and `Games` |
+| `TOKEN_SECRET` | any long random string; nobody types this |
+
+Optional: `SITE_DAYS` (default 30) and `ADMIN_HOURS` (default 24) set how long a sign-in lasts.
+
+**4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
+It names any property you have missed instead of leaving you to work it out from a broken page.
+
+**5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
+"Anyone" is about the *endpoint*, not your data — the script still refuses every request that
+doesn't carry a password or a token it signed. Copy the web app URL.
+
+**6. Paste that URL** into `gate.url` in `assets/js/config.js`. Leave it empty and the whole gate
+stays off and the site behaves exactly as before.
+
+**7. Stop publishing the stats sheet.** In the stats spreadsheet: **File → Share → Publish to web →
+Stop publishing**. Do this *last*, and only once step 6 is live and you have confirmed the stats page
+loads behind the admin password — until then the site is still reading the published CSV, and
+unpublishing early just makes it fall back to sample data.
+
+Once unpublished, **the numbers are only reachable with the admin password.** There is no public URL
+left to hand them over; the script is the only route, and it checks a token it signed itself.
+
+### Changing something later
+
+> **To update the script: Deploy → Manage deployments → Edit (the pencil) → Version: New version →
+> Deploy.** That keeps the same URL.
+>
+> **"New deployment" makes a *different* URL**, which `config.js` is not pointing at — so the site
+> keeps talking to the old code and your change looks like it did nothing.
+
+To change a password, edit the Script Property. People stay signed in until their token expires, so
+if you need everyone out now, change `TOKEN_SECRET` too — that invalidates every token immediately.
+Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
+
+### Which password opens what
+
+| | Site password | Admin password |
+|---|---|---|
+| Open the pages | yes | yes |
+| Playbook, including the lineup names | yes | yes |
+| **Read** the team playbook | yes | yes |
+| **Publish to or remove from** the team playbook | **no** | **yes** |
+| **Stats page, box scores, season tiles** | **no** | **yes** |
+| The sign-in log at `admin.html` | no | yes |
+
+Reading the team playbook takes only the site password, because it has to work on a phone with the
+password everyone has. **Changing it takes the admin password** — the shared password is shared, and
+the team playbook is not something everyone who knows it should be able to rewrite. A coach without
+it still saves as many plays as they like on their own device; the Publish button simply reads
+**Admin only**.
+
+A site sign-in lasts 30 days; an admin session lasts 24 hours, and both limits are enforced inside
+the token's signature rather than by the browser. **Signing out of admin clears the numbers from the
+page and from the browser's storage**, so a shared laptop does not keep a box score after you walk
+away. The stats are never written to storage under this setup at all; only the roster is.
+
+### The admin view
+
+`admin.html`, linked at the foot of every page. Your name is prefilled from your site sign-in; you
+type the admin password. It shows:
+
+- **People** — each name, how many times they signed in, how many attempts failed, and when they
+  were last seen.
+- **Every sign-in** — the full log, searchable, with failed attempts marked.
+
+**Failed attempts are logged too**, with whatever name was typed. After ten failures in a minute,
+further *failed* attempts are told to wait 30 seconds — but a correct password always works, even
+mid-slowdown, so nobody can shut the team out by guessing badly at the endpoint.
+
+A wrong admin name and a wrong admin password come back identically. There is no way to confirm the
+name without also having the password.
+
+---
+
 ## Privacy
 
-**A published Google Sheet and a GitHub Pages site are both readable by anyone with the link.**
-Neither has a login. If this will be shared beyond your staff, set `nameDisplay` in `config.js`:
+**Anything the site can reach without a token, anyone can reach.** A published Google Sheet has no
+login, and neither does a GitHub Pages site.
+
+`nameDisplay` in `config.js` keeps names off the page whatever else is set up:
 
 ```js
 nameDisplay: 'full'      // John Smith
@@ -256,7 +440,7 @@ nameDisplay: 'jersey'    // #12
 nameDisplay: 'initials'  // J.S.
 ```
 
-This changes what the site renders. The published sheet still contains full names.
+This changes what the site renders. A published sheet still contains full names.
 
 ---
 
@@ -265,6 +449,7 @@ This changes what the site renders. The published sheet still contains full name
 ```sh
 npm test          # unit tests — no dependencies, uses node --test
 npm run serve     # http://localhost:8000
+npm run build     # regenerate the plays index, then fill dist/
 npm run build:plays
 ```
 
@@ -283,6 +468,11 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/court.js` | court geometry in feet |
 | `assets/js/library.js` | play storage, search, import/export — pure and tested |
 | `assets/js/playbook.js` | the diagram editor |
+| `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
+| `assets/js/admin.js` | the admin prompt and the sign-in log |
+| `assets/js/teamplays.js` | the team playbook in the sheet, and the migration out of `plays/` |
+| `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
+| `apps-script/Code.gs` | the sign-in backend you paste into Google |
 
 Sheet data is cached in `localStorage` after each successful load, so pages render instantly on a
 slow connection and still show the last known numbers if the sheet can't be reached.

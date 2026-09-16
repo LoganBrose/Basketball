@@ -16,6 +16,11 @@ import {
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
+import { isEnabled, readSession, sessionValid, siteMaxAge } from './gate.js';
+import {
+  usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
+  playsToMigrate, readFilePlays, migrateFilePlays,
+} from './teamplays.js';
 import { shortName } from './model.js';
 import { printPlay, printPlaybook } from './printout.js';
 import {
@@ -738,7 +743,10 @@ function renderLineup() {
  */
 async function loadRoster() {
   try {
-    const data = await loadAll();
+    // The roster only. Asking for StatsLog with a site token would be refused,
+    // and would look like a broken sheet rather than a page asking for
+    // something it has no business seeing.
+    const data = await loadAll({ tabs: ['players'] });
     S.roster = data.players || [];
     S.rosterError = S.roster.length === 0 ? null : null;
   } catch (err) {
@@ -922,7 +930,10 @@ function playRow(play, readOnly) {
   const actions = document.createElement('div');
   actions.className = 'play-actions';
 
-  if (readOnly) {
+  // Only meaningful while the team playbook is files in the repo. Once it lives
+  // in the sheet there is no file behind this play, and a link to one would
+  // point at something that is either absent or out of date.
+  if (readOnly && !usingScript()) {
     const link = document.createElement('a');
     link.className = 'play-action';
     link.href = fileUrl(play.path || `plays/${pubSlug(play.name)}.json`);
@@ -931,7 +942,9 @@ function playRow(play, readOnly) {
     link.textContent = 'On GitHub';
     link.title = 'To remove it from the team playbook, delete the file on GitHub.';
     actions.append(link);
-  } else if (play.published) {
+  }
+
+  if (!readOnly && play.published) {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'play-action';
@@ -959,12 +972,10 @@ function playRow(play, readOnly) {
       actions.append(b);
     }
   } else {
-    // Team plays can only be copied down; nothing here deletes from the site.
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'play-action';
     b.textContent = 'Copy to this device';
-    b.title = 'To remove it from the team playbook, delete the file on GitHub.';
     b.addEventListener('click', (e) => {
       e.stopPropagation();
       const existing = listPlays().find((p) => p.id === play.id);
@@ -973,6 +984,33 @@ function playRow(play, readOnly) {
       renderLibraryAll();
     });
     actions.append(b);
+
+    // Removing from the team playbook is admin-only, and asks first: it changes
+    // what the whole team sees.
+    if (usingScript() && canPublish()) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'play-action danger';
+      del.textContent = 'Remove from team playbook';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Remove “${play.name}” from the team playbook?\n\nEveryone loses it on their next refresh. Your copy on this device is kept.`)) return;
+
+        del.disabled = true;
+        del.textContent = 'Removing…';
+        const result = await deleteTeamPlay(play.id);
+
+        if (!result.ok) {
+          del.disabled = false;
+          del.textContent = 'Remove from team playbook';
+          $('#team-status').className = 'small missing';
+          $('#team-status').textContent = result.message;
+          return;
+        }
+        renderTeam();
+      });
+      actions.append(del);
+    }
   }
 
   if (actions.childElementCount) li.append(actions);
@@ -980,12 +1018,70 @@ function playRow(play, readOnly) {
 }
 
 async function renderTeam() {
-  const { plays, playbooks, error } = await loadTeamPlaybook();
+  const { plays, playbooks, error } = await fetchTeamPlays();
   S.team = plays;
   S.teamPlaybooks = playbooks || [];
   S.teamError = error;
 
-  renderLibraryAll();   // published badges depend on the team index
+  renderLibraryAll();   // published badges depend on the team list
+  refreshMigration();
+}
+
+/* ------------------------------------------------------------------ */
+/* Migration from plays/ into the sheet                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Offer to move whatever is still in `plays/` into the sheet.
+ *
+ * Shown only to an admin, only while the files still hold plays the sheet
+ * lacks, and it disappears the moment there is nothing left to move — so it
+ * cannot linger as a button that does nothing.
+ */
+async function refreshMigration() {
+  const host = $('#team-migrate');
+  if (!host) return;
+
+  host.hidden = true;
+  host.replaceChildren();
+
+  if (!usingScript() || !canPublish()) return;
+
+  const filePlays = await readFilePlays();
+  const pending = playsToMigrate(filePlays, S.team);
+  if (pending.length === 0) return;
+
+  const note = document.createElement('p');
+  note.className = 'small';
+  note.textContent = `${pending.length} play${pending.length === 1 ? '' : 's'} still only in the site's files.`;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-primary';
+  btn.textContent = 'Move team plays into the sheet';
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Moving…';
+
+    const { moved, failed } = await migrateFilePlays(pending);
+
+    if (failed.length) {
+      note.className = 'small missing';
+      note.textContent = `Moved ${moved}. ${failed.length} failed: ${failed[0].message}`;
+      btn.disabled = false;
+      btn.textContent = 'Try again';
+      return;
+    }
+
+    note.className = 'small';
+    note.textContent = `Moved ${moved} play${moved === 1 ? '' : 's'}.`;
+    btn.remove();
+    renderTeam();
+  });
+
+  host.append(note, btn);
+  host.hidden = false;
 }
 
 /** Render only — changing the playbook picker must not refetch the site. */
@@ -1011,6 +1107,13 @@ function renderTeamList() {
   } else {
     status.className = 'small muted';
     status.textContent = '';
+  }
+
+  const blurb = $('#team-blurb');
+  if (blurb) {
+    blurb.textContent = usingScript()
+      ? 'Saved in the team sheet — the same on every device, and not readable without signing in. Opening one copies it here so you can edit it.'
+      : 'Published to the site in plays/ — the same on every device. Opening one copies it here so you can edit it.';
   }
 
   for (const play of shown) list.append(playRow(play, true));
@@ -1182,6 +1285,14 @@ function refreshPublish() {
   const note = $('#publish-note');
   if (!link) return;
 
+  // With the sheet as the team playbook there is no file to commit and no
+  // filename to collide with: a play is identified by its id, and publishing is
+  // one request.
+  if (usingScript()) {
+    refreshPublishToSheet(link, note);
+    return;
+  }
+
   const plan = currentPublishPlan();
   link.dataset.action = plan.action;
   link.dataset.path = plan.path;
@@ -1216,8 +1327,67 @@ function refreshPublish() {
     : 'Opens GitHub with the file filled in — just commit.';
 }
 
+/**
+ * Publish straight into the sheet.
+ *
+ * A non-admin sees the button disabled and labelled "Admin only" rather than
+ * hidden — knowing the team playbook exists and needs a second password is more
+ * use than a feature that silently isn't there.
+ */
+function refreshPublishToSheet(link, note) {
+  link.removeAttribute('href');
+  link.dataset.action = 'sheet';
+
+  const published = S.team.some((t) => t.id === S.play.id);
+
+  if (!canPublish()) {
+    link.classList.add('disabled');
+    link.textContent = 'Admin only';
+    note.className = 'small muted';
+    note.textContent = 'Saving to the team playbook needs the admin password. This play is saved on this device.';
+    return;
+  }
+
+  link.classList.remove('disabled');
+  link.textContent = published ? 'Update on team playbook' : 'Publish to team playbook';
+  note.className = 'small muted';
+  note.textContent = 'Saves straight to the team playbook — everyone sees it on their next refresh.';
+}
+
+async function publishToSheet() {
+  const link = $('#p-publish');
+  const note = $('#publish-note');
+  if (!canPublish()) return;
+
+  const label = link.textContent;
+  link.classList.add('disabled');
+  link.textContent = 'Saving…';
+
+  const result = await saveTeamPlay(S.play);
+
+  link.classList.remove('disabled');
+  link.textContent = label;
+
+  if (!result.ok) {
+    note.className = 'small missing';
+    note.textContent = result.message;
+    return;
+  }
+
+  note.className = 'small';
+  note.textContent = 'Saved to the team playbook.';
+  renderTeam();   // refetches, which is what re-badges the card as Published
+}
+
 async function onPublishClick(e) {
   const link = $('#p-publish');
+
+  if (usingScript()) {
+    e.preventDefault();
+    await publishToSheet();
+    return;
+  }
+
   const plan = currentPublishPlan();
 
   if (plan.action === 'conflict') {
@@ -1459,8 +1629,30 @@ function init() {
 
   setTool('select');
   renderLineup();
-  renderTeam();
-  loadRoster();
+
+  // Both need a token, and neither may run before sign-in has happened.
+  whenSignedIn(() => {
+    renderTeam();
+    loadRoster();
+  });
+}
+
+/**
+ * Run `fn` once a site session exists — the roster needs a token.
+ *
+ * gate.js announces the sign-in, but modules execute in document order and
+ * gate.js comes first, so on a reload with a session already stored it has
+ * announced before this module exists. Checking the session directly covers
+ * that; the listener covers the first sign-in of the visit. With the gate off
+ * there is nothing to wait for.
+ */
+function whenSignedIn(fn) {
+  const gate = CONFIG.gate || {};
+  if (!isEnabled(gate) || sessionValid(readSession(), siteMaxAge(gate))) {
+    fn();
+    return;
+  }
+  document.addEventListener('bb:signedin', fn, { once: true });
 }
 
 init();

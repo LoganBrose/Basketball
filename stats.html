@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stats Tracker</title>
 <meta name="description" content="Team and player basketball stats from a published Google Sheet.">
+<script>
+/* Hide the page until gate.js decides whether a sign-in is needed.
+   The timer is the failsafe for one case only: gate.js never loading. It is
+   cancelled by gate.js's first statement, so a slow sign-in cannot reveal the
+   page behind the popup. */
+document.documentElement.classList.add('gated');
+window.__gateFailsafe = setTimeout(function () {
+  document.documentElement.classList.remove('gated');
+}, 3000);
+</script>
 <link rel="stylesheet" href="assets/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏀</text></svg>">
 </head>
@@ -27,6 +37,11 @@
     box score.</p>
 
   <div id="banner" class="banner" hidden></div>
+
+  <!-- Stands in for the whole page when there is no admin session. -->
+  <div id="admin-gate" hidden></div>
+
+  <div id="stats-body">
 
   <!-- ---------------- player filter ---------------- -->
   <section class="card">
@@ -79,8 +94,17 @@
       <div class="panel-body" id="conn-body"></div>
     </details>
   </div>
+  </div>
 </main>
 
+<footer class="site-footer">
+  <div class="wrap">
+    <a href="admin.html">Admin</a>
+  </div>
+</footer>
+
+
+<script type="module" src="assets/js/gate.js"></script>
 <script type="module" src="assets/js/stats.js"></script>
 </body>
 </html>

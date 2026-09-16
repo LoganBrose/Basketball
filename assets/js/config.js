@@ -42,6 +42,26 @@ export const CONFIG = {
    */
   nameDisplay: 'full',
 
+  /**
+   * Sign-in. Paste the Apps Script web app URL into `url` to turn it on;
+   * leave it empty and the site behaves exactly as it did before.
+   *
+   * The passwords are NOT here. They live in the script's own Script
+   * Properties, which is why this file is safe in a public repo. See the
+   * "Sign-in setup" section of README.md.
+   *
+   * `days` and `adminHours` only decide when this browser stops offering a
+   * stored session. The expiry that actually matters is signed into the token
+   * and enforced by the script, because a browser can be told to lie about
+   * this one.
+   */
+  gate: {
+    url: 'https://script.google.com/macros/s/AKfycbz2tApnb1WlI2bDFSXC2nAETdAnH9nSd2ZbozLNldtR-e0QLqSELtMrDCGu1nKLac0a/exec',
+    days: 30,
+    adminHours: 24,
+    title: 'Coach Tools',
+  },
+
   /** Bundled fallback data, used when the sheet can't be reached. */
   sample: {
     statslog: 'data/sample/statslog.csv',

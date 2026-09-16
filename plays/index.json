@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-15T22:55:53.889Z",
+  "generated": "2026-09-16T10:19:03.947Z",
   "playbooks": [
     {
       "slug": "general",
@@ -7,6 +7,18 @@
       "description": "Plays that haven't been sorted into a playbook yet.",
       "order": 1,
       "plays": [
+        {
+          "file": "14.json",
+          "path": "plays/general/14.json",
+          "id": "29ad1aca-07a4-44b2-9bbe-ec18a4722d5c",
+          "name": "14",
+          "category": "Quick Hitter",
+          "tags": [],
+          "notes": "",
+          "courtType": "half",
+          "frames": 2,
+          "updatedAt": "2026-09-15T23:06:24.149Z"
+        },
         {
           "file": "horns-flare.json",
           "path": "plays/general/horns-flare.json",
@@ -22,6 +34,20 @@
           "courtType": "half",
           "frames": 3,
           "updatedAt": "2026-09-15T00:00:00.000Z"
+        },
+        {
+          "file": "twist.json",
+          "path": "plays/twist.json",
+          "id": "a8c90604-72a7-4be5-9cd2-1cd0459b15d7",
+          "name": "Twist",
+          "category": "Quick Hitter",
+          "tags": [
+            "Flare"
+          ],
+          "notes": "",
+          "courtType": "half",
+          "frames": 3,
+          "updatedAt": "2026-09-15T19:26:36.354Z"
         }
       ]
     }
