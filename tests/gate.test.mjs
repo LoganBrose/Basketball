@@ -241,3 +241,16 @@ test('search covers every column someone might look in', () => {
   assert.equal(filterRows(rows, '').length, 2);
   assert.equal(filterRows(rows, 'nobody').length, 0);
 });
+
+/* ---------------------------------------------------------------- */
+/* The token delimiter                                               */
+/* ---------------------------------------------------------------- */
+
+test('the browser strips a pipe from a name, exactly as the script does', () => {
+  // "|" separates the fields inside a token payload. If the two sides disagreed
+  // about what a name is, the name sent would not be the name signed.
+  assert.equal(cleanName('Logan|Brose'), 'LoganBrose');
+  assert.equal(cleanName('a | b'), 'a b');
+  assert.equal(cleanName('|'), '');
+  assert.equal(cleanName('||  Casey  ||'), 'Casey');
+});

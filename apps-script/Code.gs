@@ -352,13 +352,18 @@ function failed(name, page, ua, kind) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Trim, collapse internal whitespace, cap the length. Returns '' for anything
- * unusable. The site applies the same rule, but this endpoint is reachable
- * directly, so the rule has to hold here too.
+ * Strip "|", collapse internal whitespace, trim, cap the length. Returns '' for
+ * anything unusable. The site applies the same rule, but this endpoint is
+ * reachable directly, so the rule has to hold here too.
+ *
+ * The "|" removal is load-bearing, not tidiness: it is the field separator in a
+ * token payload, and verifyToken requires exactly three fields. A name
+ * containing one would sign in, hand back a token, and then fail every request
+ * made with it — which looks like a broken site, not a rejected name.
  */
 function cleanName(raw) {
   if (raw == null) return '';
-  return String(raw).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+  return String(raw).replace(/\|/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
 }
 
 /* ------------------------------------------------------------------ */

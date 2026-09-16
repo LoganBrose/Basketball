@@ -213,3 +213,43 @@ test('the sign-in list comes back newest first', () => {
   assert.equal(list[1].name, 'Second');
   assert.equal(list[2].name, 'First');
 });
+
+/* ---------------------------------------------------------------- */
+/* The token delimiter                                               */
+/* ---------------------------------------------------------------- */
+
+test('a pipe is stripped from a name, because it separates token fields', () => {
+  // Not tidiness. makeToken builds "role|name|expiry" and verifyToken requires
+  // exactly three fields, so a name carrying one would sign in, hand back a
+  // token, and then fail every request made with it.
+  const { fns } = loadCodeGs();
+  assert.equal(fns.cleanName('Logan|Brose'), 'LoganBrose');
+  assert.equal(fns.cleanName('a | b'), 'a b', 'the surrounding spaces still collapse');
+  assert.equal(fns.cleanName('|'), '', 'a name that was only a pipe is unusable');
+  assert.equal(fns.cleanName('  |Casey|  '), 'Casey');
+});
+
+test('a token issued for a name containing a pipe still verifies', () => {
+  // The end the bug actually bit: sign-in succeeded and everything after it
+  // failed, which reads as a broken site rather than a rejected name.
+  const { fns } = loadCodeGs();
+  const res = fns.handleSignIn({ name: 'Logan|Brose', password: 'team-pw' });
+
+  assert.equal(res.ok, true);
+  const check = fns.verifyToken(res.token, 'site');
+  assert.equal(check.ok, true, 'the token must verify, not just be issued');
+  assert.equal(check.name, res.name);
+});
+
+test('an admin whose typed name contains a pipe is handled consistently', () => {
+  // Both sides run the same cleanName, so ADMIN_NAME and the typed name are
+  // compared after the same stripping.
+  const ctx = loadCodeGs({ ADMIN_NAME: 'Logan Brose' });
+  assert.equal(ctx.fns.handleAdmin({ name: 'Logan|Brose', password: 'admin-pw' }).ok, false,
+    'stripping does not turn a different name into a match');
+
+  const piped = loadCodeGs({ ADMIN_NAME: 'Logan|Brose' });
+  const res = piped.fns.handleAdmin({ name: 'LoganBrose', password: 'admin-pw' });
+  assert.equal(res.ok, true, 'a pipe in the property is stripped the same way');
+  assert.equal(piped.fns.verifyToken(res.token, 'admin').ok, true);
+});

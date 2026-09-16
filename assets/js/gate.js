@@ -35,13 +35,18 @@ const DAY = 24 * 60 * 60 * 1000;
 /* ------------------------------------------------------------------ */
 
 /**
- * Trim, collapse internal whitespace, cap the length. '' means unusable.
- * Deliberately the same rule as cleanName() in apps-script/Code.gs — the server
- * applies it too, because the endpoint is reachable without this page.
+ * Strip "|", collapse internal whitespace, trim, cap the length. '' means
+ * unusable. Deliberately the same rule as cleanName() in apps-script/Code.gs —
+ * the server applies it too, because the endpoint is reachable without this
+ * page, and the two must not disagree about what a name is.
+ *
+ * "|" is removed because it separates the fields inside a token payload. A name
+ * containing one produces a token that verifies as malformed, so the sign-in
+ * appears to succeed and then nothing works.
  */
 export function cleanName(raw) {
   if (raw == null) return '';
-  return String(raw).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+  return String(raw).replace(/\|/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
 }
 
 /**
