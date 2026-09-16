@@ -115,6 +115,11 @@ export function mountAdminPrompt(host, onSuccess, opts = {}) {
 
   form.append(nameField, pwField, el('div', { class: 'gate-actions' }, submit, retry), error);
   card.append(form);
+  // Stops the next person walking into the same wall this was written for.
+  card.append(el('p', {
+    class: 'small muted',
+    text: 'Tip: you can enter the admin password at the main sign-in instead, and skip this step.',
+  }));
   host.append(card);
 
   const show = (text) => {

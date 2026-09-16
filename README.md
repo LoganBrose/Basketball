@@ -398,6 +398,13 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 | **Stats page, box scores, season tiles** | **no** | **yes** |
 | The sign-in log at `admin.html` | no | yes |
 
+**You can enter the admin password at the main sign-in popup** and be signed straight in as admin —
+one step, no second prompt. The separate admin prompt on Stats and `admin.html` is for upgrading a
+session that started with the team password, and for getting admin back after the 24 hours are up.
+
+Knowing the admin *name* is not a credential: the admin password only works alongside it, and the
+team password under that name still gets you a coach's session and nothing more.
+
 Reading the team playbook takes only the site password, because it has to work on a phone with the
 password everyone has. **Changing it takes the admin password** — the shared password is shared, and
 the team playbook is not something everyone who knows it should be able to rewrite. A coach without

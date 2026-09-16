@@ -97,7 +97,16 @@ function json(obj) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Site sign-in: any name, plus the shared site password.
+ * Site sign-in. Either password works here.
+ *
+ * The team password signs you in as a coach. The admin password, alongside
+ * ADMIN_NAME, signs you straight in as admin — no second prompt. That matters
+ * because the person who owns the site is the one who needs admin, and making
+ * them type two passwords in a row is how the front door came to look like a
+ * broken password.
+ *
+ * An admin always gets a site token as well as an admin one, so every path that
+ * only needs a site token keeps working without special-casing the admin.
  */
 function handleSignIn(body) {
   var name = cleanName(body.name);
@@ -106,13 +115,27 @@ function handleSignIn(body) {
 
   if (name === '') return { ok: false, reason: 'name' };
 
-  var expected = prop('SITE_PASSWORD');
-  var okPassword = constantTimeEquals(String(body.password || ''), expected);
+  var given = String(body.password || '');
 
-  if (!okPassword) return failed(name, page, ua, 'site');
+  // Every comparison runs every time and they are combined at the end, exactly
+  // as in handleAdmin. Returning early on the first match would answer one
+  // wrong guess measurably faster than another and say which door you got
+  // closest to.
+  var okSite = constantTimeEquals(given, prop('SITE_PASSWORD'));
+  var okAdminName = constantTimeEquals(
+    name.toLowerCase(), cleanName(prop('ADMIN_NAME')).toLowerCase());
+  var okAdminPassword = constantTimeEquals(given, prop('ADMIN_PASSWORD'));
+  var okAdmin = okAdminName && okAdminPassword;
 
-  log(name, page, ua, 'signin');
-  return { ok: true, name: name, token: makeToken('site', name, siteExpiry()) };
+  // One failure path, whichever half was wrong. The admin password under the
+  // wrong name is refused exactly like any other bad guess.
+  if (!(okSite || okAdmin)) return failed(name, page, ua, 'site');
+
+  log(name, page, ua, okAdmin ? 'admin' : 'signin');
+
+  var out = { ok: true, name: name, token: makeToken('site', name, siteExpiry()) };
+  if (okAdmin) out.adminToken = makeToken('admin', name, adminExpiry());
+  return out;
 }
 
 /**

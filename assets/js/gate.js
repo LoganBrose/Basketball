@@ -347,8 +347,15 @@ function buildOverlay(gate, onDone) {
     submit.textContent = 'Sign in';
 
     if (message.kind === 'ok') {
-      writeSession({ name: result.data.name || name, token: result.data.token, at: Date.now() });
       const signedInAs = result.data.name || name;
+      writeSession({ name: signedInAs, token: result.data.token, at: Date.now() });
+
+      // The admin password at the front door signs you straight in as admin.
+      // Stats, the dashboard tiles and Publish all read bb.admin.v1, so they
+      // unlock on the next render with nothing else to do.
+      if (result.data.adminToken) {
+        writeAdminSession({ name: signedInAs, token: result.data.adminToken, at: Date.now() });
+      }
       overlay.remove();
       reveal();
       renderSignedIn(signedInAs);
