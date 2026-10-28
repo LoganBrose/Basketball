@@ -10,7 +10,7 @@ import {
   SVG_NS, COURT_PRESETS, courtSize, renderCourt,
 } from './court.js';
 import {
-  newPlay, emptyFrame, uid, listPlays, savePlay, deletePlay, duplicatePlay,
+  newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay,
 } from './library.js';
@@ -659,15 +659,12 @@ function renderFrames() {
   $('#fr-del').disabled = S.play.frames.length <= 1;
 }
 
-function addFrame(carryOver) {
+function addFrame() {
   pushUndo();
   const label = `Action ${S.play.frames.length}`;
   const next = emptyFrame(label);
-
-  if (carryOver) {
-    // Continue: players stay where they finished, arrows start clean.
-    next.tokens = structuredClone(frame().tokens).map((t) => ({ ...t, id: uid() }));
-  }
+  // Players start where this step left them; arrows and notes start clean.
+  next.tokens = carryOverTokens(frame());
 
   S.play.frames.splice(S.frame + 1, 0, next);
   S.frame += 1;
@@ -1535,8 +1532,7 @@ function bind() {
 
   $('#fr-prev').addEventListener('click', () => { S.frame = Math.max(0, S.frame - 1); S.selection = null; render(); });
   $('#fr-next').addEventListener('click', () => { S.frame = Math.min(S.play.frames.length - 1, S.frame + 1); S.selection = null; render(); });
-  $('#fr-add').addEventListener('click', () => addFrame(false));
-  $('#fr-dup').addEventListener('click', () => addFrame(true));
+  $('#fr-add').addEventListener('click', addFrame);
   $('#fr-del').addEventListener('click', deleteFrame);
   $('#fr-ghost').addEventListener('change', (e) => { S.ghost = e.target.checked; render(); });
 

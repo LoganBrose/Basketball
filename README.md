@@ -222,9 +222,10 @@ how you draw a flare or a curl.
 Keyboard: `V` select, `C` cut, `P` pass, `D` dribble, `S` screen, `T` text, `Ctrl+Z` /
 `Ctrl+Shift+Z` undo and redo, `Delete` removes the selection.
 
-**Steps.** A play is a sequence. **Continue** adds a step with everyone still where they finished;
-**+ Step** starts an empty one. The previous step shows through faded. Double-click a step chip to
-rename it.
+**Steps.** A play is a sequence. **+ Step** adds a step with everyone where the last one left them:
+a player with a cut, dribble or screen arrow starts at its end, and a pass hands the ball to the
+receiver. Undo if you wanted it different. The previous step shows through faded. Double-click a
+step chip to rename it.
 
 **Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines,
 drawn to scale in feet.
