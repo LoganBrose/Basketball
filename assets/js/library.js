@@ -39,6 +39,73 @@ export function emptyFrame(label = 'Initial') {
   return { label, tokens: [], arrows: [], texts: [] };
 }
 
+/** How far (feet) an arrow's end may sit from a player and still be theirs. */
+const REACH = 2.5;
+const MOVERS = new Set(['offense', 'defense', 'coach']);
+
+/**
+ * The tokens a new step starts with: everyone where the last step left them.
+ *
+ * Arrows aren't linked to tokens, so each is claimed by the nearest player at
+ * its start. Cuts, dribbles and screens move that player to the arrow's end;
+ * a pass hands the ball to whoever is nearest its end, so passes are applied
+ * after movement — a pass to a cutter lands on the cutter.
+ */
+export function carryOverTokens(frame) {
+  const tokens = structuredClone(frame.tokens || []).map((t) => ({ ...t, id: uid(), start: { x: t.x, y: t.y } }));
+  const arrows = frame.arrows || [];
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  const nearest = (pool, pt, at = (t) => [t.start]) => {
+    let best = null;
+    let bestD = REACH + 1e-9;
+    for (const t of pool) {
+      for (const p of at(t)) {
+        const d = dist(p, pt);
+        if (d < bestD) { best = t; bestD = d; }
+      }
+    }
+    return best;
+  };
+
+  const balls = tokens.filter((t) => t.kind === 'ball');
+  const moved = new Set();
+
+  for (const a of arrows) {
+    if (a.kind === 'pass') continue;
+    const owner = nearest(tokens.filter((t) => MOVERS.has(t.kind) && !moved.has(t)), a.from);
+    if (!owner) continue;
+    moved.add(owner);
+    if (a.kind === 'dribble') {
+      const ball = nearest(balls.filter((b) => !moved.has(b)), owner.start);
+      if (ball) { moved.add(ball); ball.x = a.to.x; ball.y = a.to.y; }
+    }
+    owner.x = a.to.x;
+    owner.y = a.to.y;
+  }
+
+  const players = tokens.filter((t) => MOVERS.has(t.kind));
+  for (const a of arrows) {
+    if (a.kind !== 'pass') continue;
+    const passer = nearest(players, a.from);
+    const receiver = nearest(players, a.to, (t) => [t.start, t]);
+    const ball = nearest(balls, passer ? passer.start : a.from);
+
+    if (receiver && receiver !== passer) {
+      // The ball is either a flag on the passer or a loose token beside them.
+      const flagged = Boolean(passer?.hasBall);
+      if (passer) passer.hasBall = false;
+      if (ball) { ball.x = receiver.x; ball.y = receiver.y; }
+      if (flagged || !ball) receiver.hasBall = true;
+    } else if (ball) {
+      ball.x = a.to.x;
+      ball.y = a.to.y;
+    }
+  }
+
+  return tokens.map(({ start, ...t }) => t);
+}
+
 export function newPlay(overrides = {}) {
   const now = new Date().toISOString();
   return {

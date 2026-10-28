@@ -197,3 +197,72 @@ test('pulling a play down from the team playbook is not an edit', () => {
   const kept = { ...original, updatedAt: original.updatedAt };
   assert.equal(kept.updatedAt, '2026-01-02T00:00:00.000Z');
 });
+
+/* carryOverTokens ------------------------------------------------------ */
+
+import { readFileSync } from 'node:fs';
+import { carryOverTokens } from '../assets/js/library.js';
+
+const tok = (label, x, y, extra = {}) => ({ id: label, kind: 'offense', label, x, y, hasBall: false, ...extra });
+const arrow = (kind, from, to) => ({ id: `${kind}-${from.join()}`, kind, from: { x: from[0], y: from[1] }, to: { x: to[0], y: to[1] }, ctrl: null });
+const byLabel = (tokens, label) => tokens.find((t) => t.label === label);
+
+test('carryOverTokens: a cut moves its player, everyone else stays, ids are new', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10), tok('2', 30, 10), { ...tok('X1', 13, 13), kind: 'defense' }],
+    arrows: [arrow('cut', [11, 11], [20, 30])],
+  };
+  const next = carryOverTokens(frame);
+  assert.deepEqual([byLabel(next, '1').x, byLabel(next, '1').y], [20, 30]);
+  assert.deepEqual([byLabel(next, '2').x, byLabel(next, '2').y], [30, 10]);
+  assert.deepEqual([byLabel(next, 'X1').x, byLabel(next, 'X1').y], [13, 13]);
+  assert.ok(next.every((t) => !['1', '2', 'X1'].includes(t.id)));
+  assert.ok(next.every((t) => !('start' in t)));
+  assert.equal(frame.tokens[0].x, 10, 'the old step is untouched');
+});
+
+test('carryOverTokens: a screen moves the screener to the bar', () => {
+  const next = carryOverTokens({ tokens: [tok('4', 20, 20)], arrows: [arrow('screen', [20, 21], [15, 28])] });
+  assert.deepEqual([byLabel(next, '4').x, byLabel(next, '4').y], [15, 28]);
+});
+
+test('carryOverTokens: a pass hands the ball over, even to a player who cut', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10, { hasBall: true }), tok('2', 30, 10)],
+    arrows: [arrow('cut', [30, 11], [30, 25]), arrow('pass', [11, 11], [29, 24])],
+  };
+  const next = carryOverTokens(frame);
+  assert.equal(byLabel(next, '1').hasBall, false);
+  assert.equal(byLabel(next, '2').hasBall, true);
+  assert.deepEqual([byLabel(next, '1').x, byLabel(next, '1').y], [10, 10], 'a pass moves no one');
+});
+
+test('carryOverTokens: a dribble takes a loose ball with it', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10), { id: 'b', kind: 'ball', label: '', x: 11, y: 10, hasBall: false }],
+    arrows: [arrow('dribble', [10, 11], [20, 20])],
+  };
+  const next = carryOverTokens(frame);
+  const ball = next.find((t) => t.kind === 'ball');
+  assert.deepEqual([ball.x, ball.y], [20, 20]);
+});
+
+test('carryOverTokens: an arrow far from everyone moves nothing', () => {
+  const next = carryOverTokens({ tokens: [tok('1', 10, 10)], arrows: [arrow('cut', [40, 40], [5, 5])] });
+  assert.deepEqual([byLabel(next, '1').x, byLabel(next, '1').y], [10, 10]);
+});
+
+test('carryOverTokens: Horns Flare picks up where each step left off', () => {
+  const play = JSON.parse(readFileSync(new URL('../plays/general/horns-flare.json', import.meta.url)));
+  const [horns, flare] = play.frames;
+
+  const afterHorns = carryOverTokens(horns);
+  assert.equal(byLabel(afterHorns, '5').hasBall, true);
+  assert.equal(byLabel(afterHorns, '1').hasBall, false);
+
+  const afterFlare = carryOverTokens(flare);
+  const cut = flare.arrows.find((a) => a.kind === 'cut');
+  const screen = flare.arrows.find((a) => a.kind === 'screen');
+  assert.deepEqual([byLabel(afterFlare, '1').x, byLabel(afterFlare, '1').y], [cut.to.x, cut.to.y]);
+  assert.deepEqual([byLabel(afterFlare, '4').x, byLabel(afterFlare, '4').y], [screen.to.x, screen.to.y]);
+});
