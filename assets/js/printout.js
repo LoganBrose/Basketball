@@ -27,6 +27,8 @@ const el = (tag, cls, text) => {
  * @param {Object} play
  * @param {{renderToken: Function, renderArrow: Function, renderText: Function}} draw
  */
+let markerSeq = 0;
+
 function frameSvg(frame, play, draw) {
   const { w, h } = courtSize(play.courtType);
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -34,12 +36,15 @@ function frameSvg(frame, play, draw) {
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.setAttribute('class', 'print-court');
 
-  // Arrowheads are referenced per-SVG, so each frame carries its own defs.
-  svg.append(draw.defs());
+  // Each frame carries its own arrowheads under its own id. Reusing `ah` would
+  // point at the editor's marker, which is display:none on paper — and a
+  // browser draws nothing for a marker inside a hidden subtree.
+  const markerId = `ah-print-${++markerSeq}`;
+  svg.append(draw.defs(markerId));
   renderCourt(svg, { type: play.courtType, preset: play.preset });
 
   const content = document.createElementNS(SVG_NS, 'g');
-  for (const a of frame.arrows || []) content.append(draw.renderArrow(a));
+  for (const a of frame.arrows || []) content.append(draw.renderArrow(a, markerId));
   for (const t of frame.tokens || []) content.append(draw.renderToken(t));
   for (const t of frame.texts || []) content.append(draw.renderText(t));
   svg.append(content);
