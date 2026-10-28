@@ -197,11 +197,15 @@ const midpoint = (a) => a.ctrl || pointAt(a, 0.5);
 /* Rendering                                                           */
 /* ------------------------------------------------------------------ */
 
-function defs() {
+/**
+ * Arrowhead markers. `id` must be unique in the document: `url(#ah)` resolves
+ * to the first element with that id, wherever it is.
+ */
+function defs(id = 'ah') {
   const d = node('defs');
-  for (const [id, cls] of [['ah', 'ah'], ['ah-ghost', 'ah ghost']]) {
+  for (const [mid, cls] of [[id, 'ah'], [`${id}-ghost`, 'ah ghost']]) {
     const m = node('marker', {
-      id,
+      id: mid,
       viewBox: '0 0 10 10',
       refX: 8.5,
       refY: 5,
@@ -256,13 +260,13 @@ function renderToken(t, ghost = false) {
   return g;
 }
 
-function renderArrow(a, ghost = false) {
+function renderArrow(a, ghost = false, markerId = 'ah') {
   const g = node('g', {
     class: `arrow ${a.kind}${ghost ? ' ghost' : ''}${isSelected('arrow', a.id) ? ' selected' : ''}`,
   });
   if (!ghost) g.setAttribute('data-id', a.id);
 
-  const marker = ghost ? 'url(#ah-ghost)' : 'url(#ah)';
+  const marker = `url(#${markerId}${ghost ? '-ghost' : ''})`;
 
   if (a.kind === 'dribble') {
     g.append(node('path', { d: dribbleD(a), class: 'stroke', 'marker-end': marker }));
@@ -962,6 +966,15 @@ function playRow(play, readOnly) {
     actions.append(remove);
   }
 
+  if (!readOnly && !play.published) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'play-action danger';
+    del.textContent = 'Delete';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteDevicePlay(play); });
+    actions.append(del);
+  }
+
   if (!readOnly) {
     for (const [label, copy] of [['Move', false], ['Copy', true]]) {
       const b = document.createElement('button');
@@ -1015,6 +1028,18 @@ function playRow(play, readOnly) {
 
   if (actions.childElementCount) li.append(actions);
   return li;
+}
+
+/** Delete a play from this device, keeping something open in the editor. */
+function deleteDevicePlay(play) {
+  if (!confirm(`Delete "${play.name}"? This can't be undone.`)) return;
+  deletePlay(play.id);
+  if (S.play.id === play.id) {
+    const rest = listPlays();
+    if (rest.length) loadPlay(rest[rest.length - 1]);
+    else { const fresh = newPlay(); savePlay(fresh); loadPlay(fresh); }
+  }
+  renderLibraryAll();
 }
 
 async function renderTeam() {
@@ -1436,9 +1461,9 @@ async function onPublishClick(e) {
 
 /** The renderers the print view borrows, so the page matches the screen. */
 const printDraw = {
-  defs,
+  defs: (id) => defs(id),
   renderToken: (t) => renderToken(t),
-  renderArrow: (a) => renderArrow(a),
+  renderArrow: (a, markerId) => renderArrow(a, false, markerId),
   renderText: (t) => renderText(t),
 };
 
@@ -1537,13 +1562,7 @@ function bind() {
   $('#p-export').addEventListener('click', () => {
     download(`${slugify(S.play.name)}.json`, exportPlay(S.play));
   });
-  $('#p-delete').addEventListener('click', () => {
-    if (!confirm(`Delete "${S.play.name}"? This can't be undone.`)) return;
-    deletePlay(S.play.id);
-    const rest = listPlays();
-    if (rest.length) loadPlay(rest[rest.length - 1]);
-    else { const play = newPlay(); savePlay(play); loadPlay(play); }
-  });
+  $('#p-delete').addEventListener('click', () => deleteDevicePlay(S.play));
 
   $('#lib-playbook').addEventListener('change', (e) => {
     S.lib.playbook = e.target.value;
