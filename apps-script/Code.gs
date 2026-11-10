@@ -19,6 +19,8 @@
  *
  *   VIEWER_PASSWORD a view-only login: the team playbook and nothing else.
  *                   Leave it unset and there is no viewer login at all.
+ *                   It only works for a name on the Players tab of the
+ *                   stats spreadsheet (the Full Name column).
  *   SITE_DAYS       how long a team sign-in lasts, in days   (default 30)
  *   VIEWER_HOURS    how long a viewer sign-in lasts, in hours (default 24)
  *   ADMIN_HOURS     how long an admin session lasts         (default 24)
@@ -167,6 +169,11 @@ function handleSignIn(body) {
   if (!(okSite || okAdmin || okViewer)) return failed(name, page, ua, 'site');
 
   if (!okSite && !okAdmin) {
+    // The view-only password is shared with the players, so it is only good
+    // under a name on the roster. Saying so tells the person the password was
+    // right, which is why it still counts toward the lockout like any miss.
+    if (!onRoster(name)) return failed(name, page, ua, 'roster', 'not_on_roster');
+
     log(name, page, ua, 'viewer');
     var viewerUntil = viewerExpiry();
     return {
@@ -249,7 +256,7 @@ function handleSignIns(body) {
  * rather than being signed out entirely. Not logged: it is not a sign-in.
  */
 function handleCheck(body) {
-  var site = verifyToken(body.token);
+  var site = rosterChecked(verifyToken(body.token));
   var out = { ok: true, valid: site.ok, role: site.role };
   if (body.adminToken) out.adminValid = verifyToken(body.adminToken, 'admin').ok;
   return out;
@@ -378,7 +385,7 @@ function playsSheet() {
 function handlePlays(body) {
   var site = verifyToken(body.token, 'site');
   var admin = verifyToken(body.token, 'admin');
-  var viewer = verifyToken(body.token, 'viewer');
+  var viewer = rosterChecked(verifyToken(body.token, 'viewer'));
   if (!site.ok && !admin.ok && !viewer.ok) return { ok: false, reason: 'auth' };
 
   var values = playsSheet().getDataRange().getDisplayValues();
@@ -495,7 +502,7 @@ function findPlayRow(sheet, id) {
  * single "lockout" row. During the lockout itself sign-in returns before it
  * gets here, so a flood of guesses adds nothing to the log sheet.
  */
-function failed(name, page, ua, kind) {
+function failed(name, page, ua, kind, reason) {
   log(name, page, ua, 'failed:' + kind);
 
   if (bumpFailures() > THROTTLE_MAX) {
@@ -503,7 +510,7 @@ function failed(name, page, ua, kind) {
     log(name, page, ua, 'lockout');
     return { ok: false, reason: 'slow', retryAfter: LOCKOUT_SECONDS };
   }
-  return { ok: false, reason: 'password' };
+  return { ok: false, reason: reason || 'password' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -523,6 +530,83 @@ function failed(name, page, ua, kind) {
 function cleanName(raw) {
   if (raw == null) return '';
   return String(raw).replace(/\|/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+}
+
+/* ------------------------------------------------------------------ */
+/* The roster: who the view-only password works for                    */
+/* ------------------------------------------------------------------ */
+
+var ROSTER_TAB = 'Players';
+var ROSTER_CACHE_SECONDS = 300;
+
+/** The header cells the Full Name column may have; the same list sheets.js accepts. */
+var ROSTER_NAME_HEADERS = ['full name', 'name', 'player name'];
+
+/** How a name is compared: cleaned exactly as at sign-in, then lowercased. */
+function rosterKey(raw) {
+  return cleanName(raw).toLowerCase();
+}
+
+/**
+ * Every Full Name on the Players tab, as roster keys.
+ *
+ * The header row is found by its Full Name cell, so the legend lines above it
+ * are skipped. Rows with a blank name, or a Player ID starting with "EX" (the
+ * example rows), are left out — the same rule the site uses.
+ *
+ * Cached for five minutes, so a sign-in does not open the stats spreadsheet
+ * every time; removing a player therefore takes effect within five minutes.
+ * A missing or unreadable tab gives an empty list: no view-only sign-ins
+ * rather than everyone's.
+ */
+function rosterNames() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('roster');
+  if (cached) return JSON.parse(cached);
+
+  var names = [];
+  var sheet = SpreadsheetApp.openById(prop('STATS_SHEET_ID')).getSheetByName(ROSTER_TAB);
+  var values = sheet ? sheet.getDataRange().getDisplayValues() : [];
+
+  var nameCol = -1;
+  var idCol = -1;
+  var r = 0;
+  for (; r < values.length && nameCol === -1; r++) {
+    var cells = values[r].map(function (c) { return String(c).trim().toLowerCase(); });
+    for (var h = 0; h < ROSTER_NAME_HEADERS.length && nameCol === -1; h++) {
+      nameCol = cells.indexOf(ROSTER_NAME_HEADERS[h]);
+    }
+    if (nameCol !== -1) idCol = cells.indexOf('player id');
+  }
+
+  if (nameCol !== -1) {
+    for (; r < values.length; r++) {
+      var id = idCol === -1 ? '' : String(values[r][idCol] || '').trim();
+      if (/^ex/i.test(id)) continue;
+      var key = rosterKey(values[r][nameCol]);
+      if (key !== '' && names.indexOf(key) === -1) names.push(key);
+    }
+  }
+
+  cache.put('roster', JSON.stringify(names), ROSTER_CACHE_SECONDS);
+  return names;
+}
+
+function onRoster(name) {
+  var key = rosterKey(name);
+  return key !== '' && rosterNames().indexOf(key) !== -1;
+}
+
+/**
+ * A verified viewer token only counts while its name is still on the roster,
+ * so taking a player off the Players tab ends their sign-in too. Other roles
+ * pass through untouched.
+ */
+function rosterChecked(result) {
+  if (result.ok && result.role === 'viewer' && !onRoster(result.name)) {
+    return { ok: false, role: '', name: '' };
+  }
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -863,5 +947,11 @@ function checkSetup() {
 
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
   Logger.log('Viewer login is %s.', optionalProp('VIEWER_PASSWORD') ? 'ON' : 'off (VIEWER_PASSWORD not set)');
+  if (optionalProp('VIEWER_PASSWORD')) {
+    CacheService.getScriptCache().remove('roster');
+    var roster = rosterNames();
+    Logger.log('Viewer login works for %s name(s) on the "%s" tab.%s', roster.length, ROSTER_TAB,
+      roster.length ? '' : ' NOBODY can sign in as view-only until that tab has a Full Name column with names.');
+  }
   Logger.log('Setup looks good.');
 }

@@ -63,6 +63,7 @@ export function peopleFrom(rows) {
 
 /** What the Result column says for one row. */
 export function resultLabel(row) {
+  if (row?.result === 'failed:roster') return 'Failed: name not on team list';
   if (isFailure(row)) return 'Failed attempt';
   if (isSignOutAll(row)) return 'Signed everyone out';
   if (isLockout(row)) return 'Sign-in locked for 10 minutes (too many wrong passwords)';

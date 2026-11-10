@@ -260,6 +260,11 @@ export function messageFor(result) {
       };
     case 'name':
       return { kind: 'name', text: 'Please enter your name.' };
+    case 'not_on_roster':
+      return {
+        kind: 'name',
+        text: "That name isn't on the team list. Use your full name as your coach entered it.",
+      };
     case 'password':
       return { kind: 'password', text: "That password isn't right." };
     default:
@@ -531,7 +536,12 @@ function buildOverlay(gate, onDone) {
     // a way in.
     retry.hidden = message.kind !== 'network';
     show(message.text);
-    if (message.kind !== 'network') {
+    // A name problem sends you back to the name, password kept; anything else
+    // clears the password for another go.
+    if (message.kind === 'name') {
+      nameInput.focus();
+      nameInput.select();
+    } else if (message.kind !== 'network') {
       pwInput.value = '';
       pwInput.focus();
     }

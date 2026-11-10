@@ -363,7 +363,7 @@ Optional:
 
 | Property | Value |
 |---|---|
-| `VIEWER_PASSWORD` | a **view-only** password — the team playbook and nothing else (see below). Leave it unset and there is no viewer login. |
+| `VIEWER_PASSWORD` | a **view-only** password — the team playbook and nothing else, and only for names on the **Players** tab (see below). Leave it unset and there is no viewer login. |
 | `SITE_DAYS` | how long a team sign-in lasts, in days (default 30) |
 | `VIEWER_HOURS` | how long a view-only sign-in lasts, in hours (default 24) |
 | `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
@@ -414,7 +414,8 @@ sessions on its own.
 ### The view-only login
 
 Set `VIEWER_PASSWORD` in Script Properties and redeploy the script (Manage deployments → Edit → New
-version). Anyone who signs in with that password, under any name, sees **only the team playbook**:
+version). The password only works for a **name on the Players tab** of the stats spreadsheet (see
+*Who can use the view-only password* below). Anyone signed in with it sees **only the team playbook**:
 the playbook picker, the list of team plays, and the play itself. They can click through plays, step
 through them, and open a play's video link. The drawing tools, the "On this device" list, Publish
 and every edit button are gone, and the play's fields can't be typed in.
@@ -427,6 +428,27 @@ A view-only sign-in lasts **1 day**, after which the sign-in popup appears again
 `VIEWER_HOURS` to change that.
 
 Viewer sign-ins show up in the admin list as *Signed in (view only)*.
+
+#### Who can use the view-only password
+
+Only the people in the **Full Name** column of the **Players** tab: the roster the stats page and
+the lineup selector already use. There is no separate list to keep up.
+
+- **The full name, as it is on the tab.** Capital letters and extra spaces don't matter, so
+  `john smith` works for *John Smith*; `John` on its own doesn't.
+- **Example rows are ignored.** A row whose Player ID starts with `EX` can't be used to sign in, the
+  same as everywhere else on the site.
+- **A name that isn't on the list** gets *"That name isn't on the team list. Use your full name as
+  your coach entered it."* That tells the person the password was right, so these attempts count
+  toward the 5-a-minute lockout exactly like a wrong password. The admin list shows them as
+  *Failed: name not on team list*.
+- **Taking someone off the tab ends their sign-in** within 5 minutes. The script keeps the list
+  for 5 minutes rather than opening the spreadsheet on every sign-in, so additions also take up
+  to 5 minutes to work.
+- **If the Players tab is missing or has no Full Name column, nobody can sign in as view-only.**
+  Run `checkSetup` in the script editor: it says how many names the view-only password will accept.
+
+The team and admin passwords are not affected and still work under any name.
 
 ### The sign-in list only goes back 30 days
 
