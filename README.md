@@ -259,19 +259,15 @@ or remove frames.
 A device play that's already published is badged **Published**, or **Edited since publishing** when
 your copy is newer, and offers **Remove local copy**.
 
-### Moving the playbook into the sheet
+### The old `plays/` folder
 
-While both exist, the editor shows an admin a one-click **Move team plays into the sheet**. It copies
-everything still in `plays/` across, matched by id, so clicking it twice is harmless.
-
-**`plays/` is deliberately still there.** Nothing is deleted until you have confirmed the move —
-open `playbook.html` in a private window or on a device that has never seen the plays and check the
-team playbook is complete. A browser that already has them cached will look fine either way, which
-is why the private window matters. Once you have confirmed, say so and `plays/` comes out.
+The team playbook used to be JSON files under `plays/`. That folder has been deleted, so with
+sign-in configured the sheet is the only team playbook and no play is readable without signing in. The files are still in the git history if one is ever needed.
 
 ### Multiple playbooks
 
-*These apply when sign-in is not configured.* Each playbook is a folder on the site:
+*These apply only when sign-in is not configured*, in which case team plays are files committed under
+`plays/` (the folder doesn't exist at the moment; publishing creates it). Each playbook is a folder:
 
 ```
 plays/
@@ -324,11 +320,7 @@ did not check itself.
 | The pages | the popup | No — bypassable |
 | Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
 | Player names | the site password, checked in Apps Script | **Yes**, same |
-| Team playbook | the site password to read **and** to change; the viewer password to read only | **Yes**, once `plays/` is deleted |
-| Plays still in `plays/` | nothing | **No** — files in a public repo, until they are removed |
-
-**The plays are in both places right now.** The sheet is the live one; `plays/` is still there as a
-safety net until you have confirmed the move, and while it exists those files stay public.
+| Team playbook | the site password to read **and** to change; the viewer password to read only | **Yes** |
 
 Two more things worth knowing:
 
@@ -394,8 +386,9 @@ left to hand them over; the script is the only route, and it checks a token it s
 > keeps talking to the old code and your change looks like it did nothing.
 
 To change a password, edit the Script Property. People stay signed in until their token expires, so
-if you need everyone out now, change `TOKEN_SECRET` too — that invalidates every token immediately.
-Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
+if you need everyone out now, press **Sign everyone out** on `admin.html` (see below). Changing
+`TOKEN_SECRET` does the same thing by hand. Changing `ADMIN_NAME` invalidates outstanding admin
+sessions on its own.
 
 ### Which password opens what
 
@@ -404,9 +397,9 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 | **Look through** the team playbook, step through plays, open video links | yes | yes | yes |
 | Draw and edit plays on this device, the lineup names | **no** | yes | yes |
 | **Publish to or remove from** the team playbook | **no** | **yes** | **yes** |
-| Move plays from `plays/` into the sheet (one-time) | **no** | **no** | **yes** |
 | **Stats page, box scores, season tiles** | **no** | **not shown to exist** | **yes** |
-| The sign-in log at `admin.html` | **no** | **not shown to exist** | yes |
+| The sign-in log at `admin.html`, who is signed in now | **no** | **not shown to exist** | yes |
+| **Sign everyone out** | **no** | **no** | **yes** |
 
 ### The view-only login
 
@@ -486,7 +479,36 @@ type the admin password. It shows:
 
 - **People** — each name, how many times they signed in, how many attempts failed, and when they
   were last seen.
-- **Every sign-in** — the full log, searchable, with failed attempts marked.
+- **Signed in now** — everyone whose sign-in is still valid: name, access (Admin, Coach or View
+  only), when they signed in, when it runs out, and how many devices. See the caveat below.
+- **Sign everyone out** — ends every session on every device after a confirm. You stay signed in.
+- **Every sign-in** — the full log, searchable, with failed attempts and "Signed everyone out" marked.
+
+#### Signed in now
+
+Sign-ins are tokens held by each browser; the script doesn't keep a list of them. So this list is
+**worked out from the log**: every successful sign-in since the last *Sign everyone out*, whose
+lifetime (`SITE_DAYS`, `VIEWER_HOURS`, `ADMIN_HOURS`) hasn't run out. That means:
+
+- Pressing **Sign out** in someone's browser only forgets the token on that device. They stay
+  listed until their sign-in would have expired, or until you sign everyone out.
+- It shows who **could** use the site right now, not who has it open.
+- An admin whose 24-hour admin part has run out is listed as a Coach, because that's what they still are.
+
+#### Sign everyone out
+
+Pressing it writes a new `SESSION_EPOCH` Script Property. That value is part of the key every token is
+signed with, so every token issued before the press stops working at once: coaches, viewers and any
+other admin session. Every page checks its stored sign-in with the script in the background when it
+opens, so the next page anyone loads shows them the sign-in popup. A page already open stays usable
+until it next talks to the script. You are handed fresh tokens and stay signed in. The press is
+recorded in the log.
+
+`SESSION_EPOCH` is managed by the script; don't set it yourself. Deleting it only re-validates
+tokens signed before the very first press.
+
+> **This needs the updated `Code.gs` deployed** (Manage deployments → Edit → New version). Until then
+> the button says so and nobody is signed out, and *Signed in now* doesn't appear.
 
 **Failed attempts are logged too**, with whatever name was typed. After ten failures in a minute,
 further *failed* attempts are told to wait 30 seconds — but a correct password always works, even
@@ -540,7 +562,7 @@ scripts. There are no dependencies and nothing is bundled — what's in the repo
 | `assets/js/playbook.js` | the diagram editor |
 | `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
 | `assets/js/admin.js` | the admin prompt and the sign-in log |
-| `assets/js/teamplays.js` | the team playbook in the sheet, and the migration out of `plays/` |
+| `assets/js/teamplays.js` | the team playbook in the sheet |
 | `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 

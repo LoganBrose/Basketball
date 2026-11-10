@@ -24,6 +24,12 @@
  *   ADMIN_HOURS     how long an admin session lasts         (default 24)
  *   SIGNIN_DAYS     how far back the admin sign-in list goes (default 30)
  *
+ * Written by the script itself — do not set it by hand:
+ *
+ *   SESSION_EPOCH   bumped by the admin's "Sign everyone out" button. It is
+ *                   mixed into every token signature, so changing it makes
+ *                   every outstanding token stop verifying at once.
+ *
  * These are the lengths that actually matter. config.gate.days and
  * config.gate.adminHours on the site only decide when a browser stops offering
  * a stored session; the expiry baked into the token is what this script
@@ -76,6 +82,8 @@ function doPost(e) {
       case 'plays': return json(handlePlays(body));
       case 'savePlay': return json(handleSavePlay(body));
       case 'deletePlay': return json(handleDeletePlay(body));
+      case 'check': return json(handleCheck(body));
+      case 'signOutAll': return json(handleSignOutAll(body));
       default: return json({ ok: false, reason: 'unknown_action' });
     }
   } catch (err) {
@@ -190,6 +198,7 @@ function handleAdmin(body) {
     name: name,
     token: makeToken('admin', name, adminExpiry()),
     signIns: readSignIns(),
+    active: readActiveSessions(),
   };
 }
 
@@ -204,7 +213,59 @@ function handleAdmin(body) {
 function handleSignIns(body) {
   var admin = verifyToken(body.token, 'admin');
   if (!admin.ok) return { ok: false, reason: 'auth' };
-  return { ok: true, signIns: readSignIns() };
+  return { ok: true, signIns: readSignIns(), active: readActiveSessions() };
+}
+
+/**
+ * Is a stored session still good? Asked by every page in the background, so a
+ * browser holding a token that was revoked (or has expired here, whatever the
+ * browser thinks) goes back to the sign-in popup instead of half-working.
+ *
+ * Any role is accepted for `token`; `adminToken` is optional and reported
+ * separately, so an admin whose admin session lapsed drops to the coach view
+ * rather than being signed out entirely. Not logged: it is not a sign-in.
+ */
+function handleCheck(body) {
+  var site = verifyToken(body.token);
+  var out = { ok: true, valid: site.ok, role: site.role };
+  if (body.adminToken) out.adminValid = verifyToken(body.adminToken, 'admin').ok;
+  return out;
+}
+
+/**
+ * Sign everyone out: every coach, every viewer and every other admin session.
+ *
+ * Done by changing SESSION_EPOCH, which is part of the key every token is
+ * signed with, so nothing has to be listed or tracked — every token issued
+ * before this moment simply stops verifying. The admin who pressed the button
+ * is handed fresh tokens so they are not thrown out with everyone else.
+ */
+function handleSignOutAll(body) {
+  var admin = verifyToken(body.token, 'admin');
+  if (!admin.ok) return { ok: false, reason: 'auth' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var previous = props.getProperty('SESSION_EPOCH');
+    var epoch = String(Date.now());
+    // Two presses inside the same millisecond must still change the key.
+    if (epoch === previous) epoch += '-1';
+    props.setProperty('SESSION_EPOCH', epoch);
+  } finally {
+    lock.releaseLock();
+  }
+
+  log(admin.name, String(body.page || 'admin').slice(0, 80),
+    String(body.ua || '').slice(0, 120), 'signout-all');
+
+  return {
+    ok: true,
+    name: admin.name,
+    token: makeToken('site', admin.name, siteExpiry()),
+    adminToken: makeToken('admin', admin.name, adminExpiry()),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -495,8 +556,19 @@ function verifyToken(token, wantRole) {
   return { ok: true, role: role, name: name };
 }
 
+/**
+ * The signing key is TOKEN_SECRET plus SESSION_EPOCH when one has been set.
+ * With no epoch the key is TOKEN_SECRET alone, exactly as before this existed,
+ * so deploying this version signs nobody out; only the button does.
+ */
+function signingKey() {
+  var epoch = optionalProp('SESSION_EPOCH');
+  var secret = prop('TOKEN_SECRET');
+  return epoch ? secret + '|' + epoch : secret;
+}
+
 function hmac(message) {
-  return Utilities.computeHmacSha256Signature(message, prop('TOKEN_SECRET'));
+  return Utilities.computeHmacSha256Signature(message, signingKey());
 }
 
 function b64(text) {
@@ -610,6 +682,84 @@ function readSignIns() {
     rows.push({ at: r[0], name: r[1], page: r[2], ua: r[3], result: r[4] || 'signin' });
   }
   return rows.reverse();
+}
+
+/**
+ * Who is signed in right now, worked out from the log.
+ *
+ * Tokens are not stored anywhere, so this is a calculation, not a list of live
+ * connections: each successful sign-in issued a token with a known lifetime,
+ * and it counts while that lifetime has not run out and no "Sign everyone out"
+ * has happened since. Pressing Sign out in a browser only forgets the token on
+ * that device, so that person is still listed until their sign-in would expire.
+ *
+ * One entry per name (case-insensitive), newest sign-in first. `sessions` is
+ * how many still-valid sign-ins that name has — usually one per device.
+ */
+function readActiveSessions(now) {
+  now = now || Date.now();
+  var raw = logSheet().getDataRange().getValues();
+
+  var siteMs = numberProp('SITE_DAYS', 30) * 24 * 60 * 60 * 1000;
+  var viewerMs = numberProp('VIEWER_HOURS', 24) * 60 * 60 * 1000;
+  var adminMs = numberProp('ADMIN_HOURS', 24) * 60 * 60 * 1000;
+
+  // Everything signed before the most recent "Sign everyone out" is dead. The
+  // log is only ever appended to, so its row order is the order things
+  // happened — safer than comparing timestamps that can share a millisecond.
+  var start = 1;
+  for (var i = raw.length - 1; i >= 1; i--) {
+    if (String(raw[i][4]) === 'signout-all') { start = i; break; }
+  }
+
+  var byName = {};
+  for (var j = start; j < raw.length; j++) {
+    var row = raw[j];
+    var at = timeOf(row[0]);
+    var result = String(row[4] || 'signin');
+    if (!(at > 0)) continue;
+
+    var role;
+    var until;
+    if (result === 'signin') {
+      role = 'coach'; until = at + siteMs;
+    } else if (result === 'viewer') {
+      role = 'viewer'; until = at + viewerMs;
+    } else if (result === 'admin' || result === 'signout-all') {
+      // The admin sign-in also carries a coach token, so once the admin part
+      // lapses the person is still signed in as a coach.
+      role = at + adminMs > now ? 'admin' : 'coach'; until = at + siteMs;
+    } else {
+      continue;   // failed attempts
+    }
+
+    // The row that starts the loop is the "Sign everyone out" itself: the admin
+    // who pressed it was handed fresh tokens in that moment, so it counts.
+    if (!(until > now)) continue;
+
+    var name = cleanName(row[1]);
+    var key = name.toLowerCase();
+    if (!byName[key]) byName[key] = { name: name, role: role, since: at, until: until, sessions: 0 };
+    var entry = byName[key];
+    entry.sessions++;
+    if (at > entry.since) { entry.since = at; entry.name = name; }
+    if (until > entry.until) entry.until = until;
+    if (rank(role) > rank(entry.role)) entry.role = role;
+  }
+
+  var list = [];
+  for (var k in byName) list.push(byName[k]);
+  list.sort(function (a, b) { return b.since - a.since; });
+  return list;
+}
+
+function rank(role) {
+  return role === 'admin' ? 3 : role === 'coach' ? 2 : 1;
+}
+
+function timeOf(cell) {
+  var ms = cell instanceof Date ? cell.getTime() : new Date(cell).getTime();
+  return isFinite(ms) ? ms : 0;
 }
 
 /* ------------------------------------------------------------------ */

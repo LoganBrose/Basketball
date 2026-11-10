@@ -282,6 +282,56 @@ export async function adminSignIn(name, password, opts = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Is the stored session still good?                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What to do with a stored session after asking the script about it.
+ *
+ *   'keep'       — still good, or the script couldn't be asked
+ *   'signout'    — the token was revoked or has expired at the script's end
+ *   'drop-admin' — still a coach, but the admin part no longer works
+ *
+ * A network failure, or a script deployed before the check existed, is 'keep':
+ * a flaky connection must never throw a coach out mid-practice.
+ */
+export function sessionVerdict(result) {
+  const data = result && result.ok ? result.data : null;
+  if (!data || data.ok !== true) return 'keep';
+  if (data.valid === false) return 'signout';
+  if (data.adminValid === false) return 'drop-admin';
+  return 'keep';
+}
+
+/**
+ * Ask the script whether this browser's tokens still work. Run in the
+ * background on every page so the page is not held up waiting for Google.
+ *
+ * This is what makes the admin's "Sign everyone out" reach browsers: the next
+ * page anyone opens sends them back to the sign-in popup.
+ */
+export async function verifyStoredSession(gate = CONFIG.gate, opts = {}) {
+  const session = readSession();
+  if (!session?.token) return 'keep';
+
+  const payload = { action: 'check', token: session.token };
+  const admin = readAdminSession();
+  if (hasAdminSession() && admin?.token) payload.adminToken = admin.token;
+
+  const verdict = sessionVerdict(await callScript(gate.url, payload, opts));
+
+  if (verdict === 'signout') {
+    clearSession();
+    clearAdminSession();
+    globalThis.location?.reload();
+  } else if (verdict === 'drop-admin') {
+    clearAdminSession();
+    globalThis.location?.reload();
+  }
+  return verdict;
+}
+
+/* ------------------------------------------------------------------ */
 /* The overlay                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -513,6 +563,7 @@ export function mount() {
     renderSignedIn(session.name);
     renderNav();
     announce(session.name);
+    verifyStoredSession(gate);
     return;
   }
 

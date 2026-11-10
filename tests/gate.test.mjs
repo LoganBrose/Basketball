@@ -360,3 +360,81 @@ test('a session past its own `until` is over, even inside the general limit', as
     assert.equal(isViewer(gateOn), false, 'an expired viewer is signed out');
   });
 });
+
+/* ---------------------------------------------------------------- */
+/* Revoked sessions and "Sign everyone out"                          */
+/* ---------------------------------------------------------------- */
+
+import { sessionVerdict } from '../assets/js/gate.js';
+import { resultLabel, roleLabel, signOutEveryone } from '../assets/js/admin.js';
+
+test('a revoked token sends the browser back to the sign-in popup', () => {
+  assert.equal(sessionVerdict({ ok: true, data: { ok: true, valid: false } }), 'signout');
+});
+
+test('a lapsed admin token drops to the coach view, not out entirely', () => {
+  assert.equal(sessionVerdict({ ok: true, data: { ok: true, valid: true, adminValid: false } }), 'drop-admin');
+  assert.equal(sessionVerdict({ ok: true, data: { ok: true, valid: true, adminValid: true } }), 'keep');
+  assert.equal(sessionVerdict({ ok: true, data: { ok: true, valid: true } }), 'keep');
+});
+
+test('a network failure or an older script never signs anyone out', () => {
+  assert.equal(sessionVerdict({ ok: false, error: 'offline' }), 'keep');
+  assert.equal(sessionVerdict({ ok: true, data: { ok: false, reason: 'unknown_action' } }), 'keep');
+  assert.equal(sessionVerdict(null), 'keep');
+});
+
+test('Sign everyone out reads as an event, not as a sign-in', () => {
+  const rows = [
+    { name: 'Logan Brose', result: 'signout-all', at: 'b' },
+    { name: 'Logan Brose', result: 'admin', at: 'a' },
+  ];
+  assert.equal(resultLabel(rows[0]), 'Signed everyone out');
+  assert.equal(peopleFrom(rows)[0].signIns, 1);
+});
+
+test('access labels for the Signed in now list', () => {
+  assert.equal(roleLabel('admin'), 'Admin');
+  assert.equal(roleLabel('coach'), 'Coach');
+  assert.equal(roleLabel('viewer'), 'View only');
+});
+
+function withStore(fn) {
+  const previous = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  return fn(store).finally(() => {
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  });
+}
+
+const reply = (body) => async () => ({ ok: true, text: async () => JSON.stringify(body) });
+
+test('after signing everyone out, this browser keeps the fresh tokens', () => withStore(async (store) => {
+  const now = Date.now();
+  store.set('bb.admin.v1', JSON.stringify({ name: 'Logan Brose', token: 'old-admin', at: now, until: now + HOUR }));
+  store.set('bb.gate.v1', JSON.stringify({ name: 'Logan Brose', token: 'old-site', role: 'site', at: now }));
+
+  const msg = await signOutEveryone({
+    fetchImpl: reply({ ok: true, name: 'Logan Brose', token: 'new-site', adminToken: 'new-admin' }),
+  });
+  assert.equal(msg, '');
+  assert.equal(JSON.parse(store.get('bb.gate.v1')).token, 'new-site');
+  assert.equal(JSON.parse(store.get('bb.admin.v1')).token, 'new-admin');
+}));
+
+test('a failed sign-everyone-out keeps the old session and says why', () => withStore(async (store) => {
+  const now = Date.now();
+  const admin = JSON.stringify({ name: 'Logan Brose', token: 'old-admin', at: now, until: now + HOUR });
+  store.set('bb.admin.v1', admin);
+
+  assert.match(await signOutEveryone({ fetchImpl: reply({ ok: false, reason: 'unknown_action' }) }), /new version/);
+  assert.match(await signOutEveryone({ fetchImpl: reply({ ok: false, reason: 'auth' }) }), /expired/);
+  assert.match(await signOutEveryone({ fetchImpl: async () => { throw new Error('offline'); } }), /Nobody was signed out/);
+  assert.equal(store.get('bb.admin.v1'), admin);
+}));
