@@ -617,6 +617,28 @@ input[type='text'], textarea {
 .pb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .pb-actions .btn { flex: 1 1 auto; }
 
+/* Video link on a play */
+.pb-video { margin: 4px 0 0; }
+.pb-video .btn { width: 100%; justify-content: center; }
+
+/* View-only sign-in: the team playbook and the play, nothing that edits. The
+   hidden controls are also guarded in playbook.js, and the server refuses a
+   viewer token everything but reading plays. */
+.viewer .pb-tools,
+.viewer #pb-hint,
+.viewer #fr-add,
+.viewer #fr-del,
+.viewer #p-video-field,
+.viewer #p-publish,
+.viewer #publish-note,
+.viewer .pb-edit-only,
+.viewer main > .lede,
+.viewer [data-collapse="device"] { display: none !important; }
+.viewer #court { cursor: default; }
+.viewer .pb-side input[readonly],
+.viewer .pb-side textarea[readonly],
+.viewer .pb-side select:disabled { background: transparent; opacity: 1; }
+
 .play-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
 
 .play-row + .play-row { border-top: 1px solid var(--border); }
@@ -929,6 +951,7 @@ details.panel.secondary > summary { padding: 10px 14px; font-size: 0.85rem; }
   .print-notes { break-inside: avoid; margin-top: 8mm; }
   .print-notes h2 { font-size: 11pt; margin: 0 0 3pt; }
   .print-notes p { font-size: 10pt; margin: 0; white-space: pre-wrap; }
+  .print-video { font-size: 10pt; margin: 4mm 0 0; word-break: break-all; }
 
   .print-cover { break-after: page; text-align: left; }
   .print-cover h1 { font-size: 28pt; margin: 20mm 0 4mm; }

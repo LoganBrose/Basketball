@@ -356,7 +356,14 @@ from the URL: `docs.google.com/spreadsheets/d/`**`THIS_PART`**`/edit`.
 | `STATS_SHEET_ID` | your existing stats spreadsheet's ID — the one with `StatsLog`, `Players` and `Games` |
 | `TOKEN_SECRET` | any long random string; nobody types this |
 
-Optional: `SITE_DAYS` (default 30) and `ADMIN_HOURS` (default 24) set how long a sign-in lasts.
+Optional:
+
+| Property | Value |
+|---|---|
+| `VIEWER_PASSWORD` | a **view-only** password — the team playbook and nothing else (see below). Leave it unset and there is no viewer login. |
+| `SITE_DAYS` | how long a team or viewer sign-in lasts, in days (default 30) |
+| `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
+| `SIGNIN_DAYS` | how many days back the admin sign-in list goes (default 30) |
 
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.
@@ -390,13 +397,40 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 
 ### Which password opens what
 
-| | Site password | Admin password |
-|---|---|---|
-| The playbook, including the lineup names | yes | yes |
-| **Read** the team playbook | yes | yes |
-| **Publish to or remove from** the team playbook | **no** | **yes** |
-| **Stats page, box scores, season tiles** | **not shown to exist** | **yes** |
-| The sign-in log at `admin.html` | **not shown to exist** | yes |
+| | Viewer password | Site password | Admin password |
+|---|---|---|---|
+| **Look through** the team playbook, step through plays, open video links | yes | yes | yes |
+| Draw and edit plays on this device, the lineup names | **no** | yes | yes |
+| **Publish to or remove from** the team playbook | **no** | **no** | **yes** |
+| **Stats page, box scores, season tiles** | **no** | **not shown to exist** | **yes** |
+| The sign-in log at `admin.html` | **no** | **not shown to exist** | yes |
+
+### The view-only login
+
+Set `VIEWER_PASSWORD` in Script Properties and redeploy the script (Manage deployments → Edit → New
+version). Anyone who signs in with that password, under any name, sees **only the team playbook**:
+the playbook picker, the list of team plays, and the play itself. They can click through plays, step
+through them, and open a play's video link. The drawing tools, the "On this device" list, Publish
+and every edit button are gone, and the play's fields can't be typed in.
+
+The hiding is done by the page, but the limit is real: the script gives a viewer a `viewer` token,
+and the only thing that token can do is read the team playbook. It cannot read the roster or stats,
+and it cannot save or delete anything.
+
+Viewer sign-ins show up in the admin list as *Signed in (view only)*.
+
+### The sign-in list only goes back 30 days
+
+`admin.html` lists the last 30 days of sign-ins. Older rows are **not deleted** from the log sheet;
+they just stop being listed. Set `SIGNIN_DAYS` to change the window (the page heading still says
+30 days).
+
+### Video links on plays
+
+Each play has a **Video link** field in *This play*. Paste a YouTube link (any `http`/`https` link
+works) and a **▶ Watch video** button appears under it, opening the video in a new tab. The link is
+saved with the play, travels with it when it is published to the team playbook, and is printed
+under the notes in PDF exports. Anything that is not an `http`/`https` link is ignored.
 
 **The sign-in popup is the only way to become admin.** Enter the admin name and the admin password
 there and you are signed straight in — one step. There is no second prompt anywhere, because a

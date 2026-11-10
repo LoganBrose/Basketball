@@ -53,6 +53,14 @@ export function peopleFrom(rows) {
   return [...byName.values()].sort((a, b) => b.signIns - a.signIns || a.name.localeCompare(b.name));
 }
 
+/** What the Result column says for one row. */
+export function resultLabel(row) {
+  if (isFailure(row)) return 'Failed attempt';
+  if (row?.result === 'admin') return 'Signed in (admin)';
+  if (row?.result === 'viewer') return 'Signed in (view only)';
+  return 'Signed in';
+}
+
 /** Free-text filter across every column a person might search by. */
 export function filterRows(rows, query) {
   const q = String(query || '').trim().toLowerCase();
@@ -113,7 +121,7 @@ export function renderSignIns(host, rows) {
   /* Every sign-in ------------------------------------------------ */
   const logCard = el('details', { class: 'card collapsible', attrs: { open: 'open' } });
   logCard.append(el('summary', { class: 'pb-side-head' },
-    el('h2', { text: 'Every sign-in' }),
+    el('h2', { text: 'Every sign-in, last 30 days' }),
     el('span', { class: 'pill', text: String(rows.length) })));
 
   const search = el('input', { attrs: { type: 'search', id: 'admin-search', placeholder: 'Name, page, date…' } });
@@ -142,7 +150,7 @@ export function renderSignIns(host, rows) {
       tr.append(el('td', { text: cleanName(row.name) || '(no name)' }));
       tr.append(el('td', { text: row.at || '—' }));
       tr.append(el('td', { text: row.page || '—' }));
-      tr.append(el('td', { text: isFailure(row) ? 'Failed attempt' : 'Signed in' }));
+      tr.append(el('td', { text: resultLabel(row) }));
       tbody.append(tr);
     }
     count.textContent = shown.length === rows.length

@@ -319,3 +319,30 @@ test('a session written before `until` existed is not trusted', async () => {
     (hasAdminSession) => assert.equal(hasAdminSession(), false),
   );
 });
+
+/* ---------------------------------------------------------------- */
+/* Deciding who is a viewer                                          */
+/* ---------------------------------------------------------------- */
+
+test('only a valid session stamped viewer, with no admin session, is a viewer', async () => {
+  const gateOn = { url: 'https://script.google.com/macros/s/x/exec', days: 30 };
+  const site = (role) => ({ name: 'P', token: 'tok', at: Date.now(), ...(role ? { role } : {}) });
+  const admin = { name: 'Logan Brose', token: 'tok', at: Date.now(), until: Date.now() + 60_000 };
+
+  const cases = [
+    [site('viewer'), undefined, gateOn, true, 'a viewer'],
+    [site('site'), undefined, gateOn, false, 'a coach'],
+    [site(), undefined, gateOn, false, 'a session from before roles existed'],
+    [site('viewer'), admin, gateOn, false, 'an admin is never a viewer'],
+    [{ ...site('viewer'), at: Date.now() - 31 * DAY }, undefined, gateOn, false, 'an expired viewer'],
+    [site('viewer'), undefined, { url: '' }, false, 'sign-in switched off'],
+  ];
+
+  for (const [session, adminSession, cfg, want, why] of cases) {
+    await withStoredAdmin(adminSession, async (_has, store) => {
+      store.set('bb.gate.v1', JSON.stringify(session));
+      const { isViewer } = await import('../assets/js/gate.js');
+      assert.equal(isViewer(cfg), want, why);
+    });
+  }
+});

@@ -12,11 +12,11 @@ import {
 import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
-  exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay,
+  exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl,
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
-import { isEnabled, readSession, sessionValid, siteMaxAge } from './gate.js';
+import { isEnabled, isViewer, readSession, sessionValid, siteMaxAge } from './gate.js';
 import {
   usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
   playsToMigrate, readFilePlays, migrateFilePlays,
@@ -62,6 +62,8 @@ const S = {
   lineup: {},
   roster: [],
   rosterError: null,
+  // Signed in with the view-only password: the team playbook, read-only.
+  viewer: false,
 };
 
 /** Where each player starts when you add them, so a set takes seconds to lay out. */
@@ -353,6 +355,7 @@ function render() {
 /* ------------------------------------------------------------------ */
 
 function pushUndo() {
+  if (S.viewer) return;
   S.undo.push(JSON.stringify(S.play.frames));
   if (S.undo.length > 60) S.undo.shift();
   S.redo.length = 0;
@@ -370,6 +373,7 @@ function restore(stack, other) {
 
 /** Autosave: work should survive a closed tab without anyone remembering to save. */
 function scheduleSave() {
+  if (S.viewer) return;   // a viewer never writes, not even to this browser
   setSaveState('saving');
   clearTimeout(S.saveTimer);
   S.saveTimer = setTimeout(() => {
@@ -382,6 +386,11 @@ function scheduleSave() {
 
 function setSaveState(kind) {
   const pill = $('#save-state');
+  if (S.viewer) {
+    pill.className = 'pill';
+    pill.textContent = 'View only';
+    return;
+  }
   pill.className = 'pill' + (kind === 'error' ? ' warn' : kind === 'saved' ? ' ok' : '');
   pill.textContent = kind === 'saved' ? 'Saved' : kind === 'saving' ? 'Saving…' : 'Not saved';
 }
@@ -402,6 +411,7 @@ function freeSpot(base) {
 }
 
 function addToken(kind, label) {
+  if (S.viewer) return;
   pushUndo();
   const base = kind === 'offense' || kind === 'defense'
     ? (SPOTS[kind][label] || [25, 24])
@@ -434,7 +444,7 @@ function addText(p) {
 }
 
 function deleteSelection() {
-  if (!S.selection) return;
+  if (S.viewer || !S.selection) return;
   pushUndo();
   const f = frame();
   const { type, id } = S.selection;
@@ -462,6 +472,7 @@ function findItem(id) {
 }
 
 function onPointerDown(e) {
+  if (S.viewer) return;
   if (e.button != null && e.button !== 0) return;
   const p = toCourt(e);
 
@@ -592,6 +603,7 @@ function onPointerUp(e) {
 }
 
 function onDoubleClick(e) {
+  if (S.viewer) return;
   const hit = e.target.closest('[data-id]');
   if (!hit) return;
   const found = findItem(hit.dataset.id);
@@ -637,13 +649,14 @@ function renderFrames() {
     chip.type = 'button';
     chip.className = 'frame-chip' + (i === S.frame ? ' active' : '');
     chip.textContent = f.label || `Step ${i + 1}`;
-    chip.title = 'Double-click to rename';
+    if (!S.viewer) chip.title = 'Double-click to rename';
     chip.addEventListener('click', () => {
       S.frame = i;
       S.selection = null;
       render();
     });
     chip.addEventListener('dblclick', () => {
+      if (S.viewer) return;
       const value = prompt('Step name', f.label);
       if (value == null) return;
       pushUndo();
@@ -660,6 +673,7 @@ function renderFrames() {
 }
 
 function addFrame() {
+  if (S.viewer) return;
   pushUndo();
   const label = `Action ${S.play.frames.length}`;
   const next = emptyFrame(label);
@@ -674,7 +688,7 @@ function addFrame() {
 }
 
 function deleteFrame() {
-  if (S.play.frames.length <= 1) return;
+  if (S.viewer || S.play.frames.length <= 1) return;
   pushUndo();
   S.play.frames.splice(S.frame, 1);
   if (S.frame >= S.play.frames.length) S.frame = S.play.frames.length - 1;
@@ -772,8 +786,20 @@ function fillForm() {
   $('#p-category').value = S.play.category;
   $('#p-tags').value = (S.play.tags || []).join(', ');
   $('#p-notes').value = S.play.notes;
+  $('#p-video').value = S.play.youtube || '';
+  renderVideoLink();
   $('#p-court').value = S.play.courtType;
   $('#p-preset').value = S.play.preset;
+}
+
+/** "▶ Watch video", shown only when the play has a usable link. */
+function renderVideoLink() {
+  const url = safeVideoUrl(S.play.youtube);
+  const row = $('#p-video-row');
+  const link = $('#p-video-open');
+  row.hidden = url === '';
+  link.href = url || '#';
+  link.title = url;
 }
 
 function bindForm() {
@@ -793,6 +819,10 @@ function bindForm() {
   text('#p-name', (v) => { S.play.name = v; });
   text('#p-category', (v) => { S.play.category = v; });
   text('#p-notes', (v) => { S.play.notes = v; });
+  text('#p-video', (v) => {
+    S.play.youtube = v.trim() || null;
+    renderVideoLink();
+  });
   text('#p-tags', (v) => {
     S.play.tags = v.split(',').map((t) => t.trim()).filter(Boolean);
   });
@@ -862,7 +892,7 @@ function renderLibrary() {
 
 function playRow(play, readOnly) {
   const li = document.createElement('li');
-  li.className = 'play-row' + (!readOnly && play.id === S.play.id ? ' active' : '');
+  li.className = 'play-row' + ((!readOnly || S.viewer) && play.id === S.play.id ? ' active' : '');
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -907,6 +937,12 @@ function playRow(play, readOnly) {
   }
 
   btn.addEventListener('click', () => {
+    if (S.viewer) {
+      // Just look at it. Nothing is copied into this browser.
+      loadPlay(structuredClone(play));
+      renderTeamList();
+      return;
+    }
     if (readOnly) {
       // Keep the id: this is the same play, now editable here. Minting a new
       // one would make it look unrelated to the file it came from, and
@@ -925,6 +961,9 @@ function playRow(play, readOnly) {
   });
 
   li.append(btn);
+
+  // A viewer can open plays and nothing else.
+  if (S.viewer) return li;
 
   // Row actions, kept off the open-the-play button so a stray tap can't
   // destroy something.
@@ -1047,6 +1086,17 @@ async function renderTeam() {
 
   renderLibraryAll();   // published badges depend on the team list
   refreshMigration();
+  if (S.viewer) openFirstTeamPlay();
+}
+
+/** A viewer lands on a team play, never on a blank floor. */
+function openFirstTeamPlay() {
+  const shown = scopedPlays(S.team);
+  if (shown.some((p) => p.id === S.play.id)) return;
+  if (shown.length) {
+    loadPlay(structuredClone(shown[0]));
+    renderTeamList();
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1140,7 +1190,9 @@ function renderTeamList() {
   }
 
   const blurb = $('#team-blurb');
-  if (blurb) {
+  if (blurb && S.viewer) {
+    blurb.textContent = 'View only — tap a play to see it.';
+  } else if (blurb) {
     blurb.textContent = usingScript()
       ? 'Saved in the team sheet — the same on every device, and not readable without signing in. Opening one copies it here so you can edit it.'
       : 'Published to the site in plays/ — the same on every device. Opening one copies it here so you can edit it.';
@@ -1179,7 +1231,11 @@ function writePlaybookParam() {
 }
 
 function refreshPlaybooks() {
-  S.playbooks = mergePlaybooks(S.teamPlaybooks, readLocalPlaybooks(), listPlays());
+  // A viewer has no device plays or playbooks of their own, so the picker
+  // counts the team's plays only.
+  S.playbooks = S.viewer
+    ? mergePlaybooks(S.teamPlaybooks.map((pb) => ({ ...pb, plays: [] })), [], S.team)
+    : mergePlaybooks(S.teamPlaybooks, readLocalPlaybooks(), listPlays());
 
   // Library picker: "All plays" plus every playbook with its count.
   const picker = $('#lib-playbook');
@@ -1564,6 +1620,7 @@ function bind() {
     S.lib.playbook = e.target.value;
     writePlaybookParam();
     renderLibraryAll();
+    if (S.viewer) openFirstTeamPlay();
   });
   $('#pb-new').addEventListener('click', onNewPlaybook);
   $('#pb-pdf').addEventListener('click', () => {
@@ -1605,6 +1662,13 @@ function bind() {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
     if (typing) return;
 
+    // A viewer gets the arrow keys for stepping through, and nothing that edits.
+    if (S.viewer) {
+      if (e.key === 'ArrowLeft') $('#fr-prev').click();
+      if (e.key === 'ArrowRight') $('#fr-next').click();
+      return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       if (e.shiftKey) restore(S.redo, S.undo);
@@ -1642,9 +1706,13 @@ function init() {
   bind();
   bindCollapsibles();
 
-  // Reopen whatever was last worked on rather than a blank floor.
-  const existing = listPlays();
-  if (existing.length) {
+  // A returning viewer is known before anything loads, so their browser never
+  // gets a blank play saved into it. A first-time viewer is caught at sign-in.
+  if (isViewer()) {
+    enterViewerMode();
+  } else if (listPlays().length) {
+    // Reopen whatever was last worked on rather than a blank floor.
+    const existing = listPlays();
     const latest = [...existing].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
     loadPlay(latest);
   } else {
@@ -1658,9 +1726,52 @@ function init() {
 
   // Both need a token, and neither may run before sign-in has happened.
   whenSignedIn(() => {
+    if (!S.viewer && isViewer()) enterViewerMode();
     renderTeam();
-    loadRoster();
+    if (!S.viewer) loadRoster();
   });
+}
+
+/**
+ * Turn the editor into a viewer for the team playbook.
+ *
+ * Runs after sign-in rather than at load, because a first-time viewer signs
+ * in after this module has already started. The CSS under `.viewer` hides the
+ * editing controls; the S.viewer guards make sure nothing hidden can still be
+ * reached by keyboard. The server is the real limit: a viewer token can read
+ * plays and do nothing else.
+ */
+function enterViewerMode() {
+  S.viewer = true;
+  document.documentElement.classList.add('viewer');
+  const heading = document.querySelector('main > h1');
+  if (heading) heading.textContent = 'Team Playbook';
+
+  clearTimeout(S.saveTimer);
+  S.undo.length = 0;
+  S.redo.length = 0;
+  S.selection = null;
+  S.lineup = {};
+
+  // Nothing typed here would be kept, so nothing here takes typing.
+  for (const sel of ['#p-name', '#p-category', '#p-tags', '#p-notes']) {
+    $(sel).readOnly = true;
+    $(sel).placeholder = '';   // example text reads as content in a read-only box
+  }
+  for (const sel of ['#p-court', '#p-preset', '#p-playbook']) $(sel).disabled = true;
+
+  // The playbook picker lives in the device card, which a viewer doesn't see.
+  const picker = $('#lib-playbook')?.closest('.field');
+  const teamCard = $('#team-card');
+  if (picker && teamCard) teamCard.querySelector('#team-blurb').after(picker);
+
+  // Never show a device play to a viewer, even for the moment before the team
+  // playbook arrives.
+  S.play = newPlay({ name: '' });
+  S.frame = 0;
+  fillForm();
+  render();
+  setSaveState('saved');
 }
 
 /**

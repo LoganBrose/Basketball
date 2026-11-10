@@ -181,6 +181,7 @@ export function searchPlays(plays, query, { category = '', tag = '' } = {}) {
       play.name,
       play.category,
       play.notes,
+      play.youtube,
       ...(play.tags || []),
       ...(play.frames || []).flatMap((f) => [
         f.label,
@@ -242,6 +243,27 @@ export function parseImport(text) {
   return { plays, errors };
 }
 
+/**
+ * A video link that is safe to put in an href, or ''.
+ *
+ * Only http and https survive, so a pasted `javascript:` link can never become
+ * something a viewer clicks. A link typed without its scheme (youtu.be/abc)
+ * gets https:// added rather than being thrown away.
+ */
+export function safeVideoUrl(raw) {
+  let text = String(raw == null ? '' : raw).trim();
+  if (text === '') return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    if (!url.hostname.includes('.')) return '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
 /** Fill in anything an older or hand-edited file is missing. */
 export function normalizePlay(raw) {
   const frames = (raw.frames || []).map((f, i) => ({
@@ -282,7 +304,7 @@ export function normalizePlay(raw) {
     // mixed into frames, and never tied to the lineup, which stays out of the
     // play entirely so any play opens under any lineup.
     playbook: raw.playbook || 'general',
-    youtube: raw.youtube || null,
+    youtube: safeVideoUrl(raw.youtube) || null,
     frames: frames.length ? frames : [emptyFrame()],
     createdAt: raw.createdAt || new Date().toISOString(),
     updatedAt: raw.updatedAt || new Date().toISOString(),

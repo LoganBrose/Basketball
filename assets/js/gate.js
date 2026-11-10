@@ -121,6 +121,21 @@ export function hasAdminSession(now = Date.now()) {
 }
 
 /**
+ * Is this browser signed in with the view-only password?
+ *
+ * Only the team playbook is shown to a viewer, and nothing in it can be edited.
+ * That is a courtesy of the page; the real limit is the 'viewer' token, which
+ * the Apps Script accepts for reading plays and nothing else. A session from
+ * before roles existed has no role and is treated as a coach, as it was.
+ */
+export function isViewer(gateCfg = CONFIG.gate, now = Date.now()) {
+  if (!isEnabled(gateCfg)) return false;
+  if (hasAdminSession(now)) return false;
+  const session = readSession();
+  return sessionValid(session, siteMaxAge(gateCfg), now) && session.role === 'viewer';
+}
+
+/**
  * Is a stored session still offerable?
  *
  * This only decides whether the browser bothers trying. The expiry that matters
@@ -418,7 +433,12 @@ function buildOverlay(gate, onDone) {
 
     if (message.kind === 'ok') {
       const signedInAs = result.data.name || name;
-      writeSession({ name: signedInAs, token: result.data.token, at: Date.now() });
+      writeSession({
+        name: signedInAs,
+        token: result.data.token,
+        role: result.data.role === 'viewer' ? 'viewer' : 'site',
+        at: Date.now(),
+      });
 
       // The admin password at the front door signs you straight in as admin.
       // Stats, the dashboard tiles and Publish all read bb.admin.v1, so they
