@@ -34,6 +34,9 @@ export const isFailure = (row) => String(row?.result || '').startsWith('failed')
 /** The admin pressing "Sign everyone out" is logged, but it is not a sign-in. */
 export const isSignOutAll = (row) => row?.result === 'signout-all';
 
+/** Sign-in was locked after too many wrong passwords. Logged once per lock. */
+export const isLockout = (row) => row?.result === 'lockout';
+
 /**
  * One line per person: how many times they signed in, and when they were last
  * seen. Failed attempts are counted separately rather than folded in, so a
@@ -45,7 +48,7 @@ export function peopleFrom(rows) {
   const byName = new Map();
 
   for (const row of rows || []) {
-    if (isSignOutAll(row)) continue;
+    if (isSignOutAll(row) || isLockout(row)) continue;
     const name = cleanName(row.name) || '(no name)';
     if (!byName.has(name)) {
       byName.set(name, { name, signIns: 0, failures: 0, lastSeen: row.at });
@@ -62,6 +65,7 @@ export function peopleFrom(rows) {
 export function resultLabel(row) {
   if (isFailure(row)) return 'Failed attempt';
   if (isSignOutAll(row)) return 'Signed everyone out';
+  if (isLockout(row)) return 'Sign-in locked for 10 minutes (too many wrong passwords)';
   if (row?.result === 'admin') return 'Signed in (admin)';
   if (row?.result === 'viewer') return 'Signed in (view only)';
   return 'Signed in';
@@ -188,7 +192,7 @@ function renderActive(host, active) {
 /* The log                                                             */
 /* ------------------------------------------------------------------ */
 
-export function renderSignIns(host, rows, active) {
+export function renderSignIns(host, rows, active, days = 30) {
   host.replaceChildren();
 
   const signedIn = readAdminSession();
@@ -240,7 +244,7 @@ export function renderSignIns(host, rows, active) {
   /* Every sign-in ------------------------------------------------ */
   const logCard = el('details', { class: 'card collapsible', attrs: { open: 'open' } });
   logCard.append(el('summary', { class: 'pb-side-head' },
-    el('h2', { text: 'Every sign-in, last 30 days' }),
+    el('h2', { text: `Every sign-in, last ${days} day${days === 1 ? '' : 's'}` }),
     el('span', { class: 'pill', text: String(rows.length) })));
 
   const search = el('input', { attrs: { type: 'search', id: 'admin-search', placeholder: 'Name, page, date…' } });
@@ -265,7 +269,7 @@ export function renderSignIns(host, rows, active) {
     const shown = filterRows(rows, search.value);
     tbody.replaceChildren();
     for (const row of shown) {
-      const tr = el('tr', { class: isFailure(row) ? 'flagged-row' : '' });
+      const tr = el('tr', { class: isFailure(row) || isLockout(row) ? 'flagged-row' : '' });
       tr.append(el('td', { text: cleanName(row.name) || '(no name)' }));
       tr.append(el('td', { text: row.at || '—' }));
       tr.append(el('td', { text: row.page || '—' }));
@@ -318,5 +322,8 @@ export async function mountAdminPage(host) {
     return;
   }
 
-  renderSignIns(host, result.data.signIns || [], result.data.active);
+  const days = Number(result.data.days) > 0 ? Number(result.data.days) : 30;
+  const lede = globalThis.document?.getElementById('signin-days');
+  if (lede) lede.textContent = `${days} day${days === 1 ? '' : 's'}`;
+  renderSignIns(host, result.data.signIns || [], result.data.active, days);
 }
