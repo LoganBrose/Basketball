@@ -41,8 +41,22 @@ export function loadCodeGs(props = {}) {
   const cache = new Map();
   /** Lock bookkeeping — a lock left held blocks every later write. */
   const locks = { taken: 0, released: 0 };
-  /** Extra tabs, keyed by name, for the data actions added in later commits. */
-  const sheets = {};
+  /**
+   * Extra tabs, keyed by name, for the data actions added in later commits.
+   * Players starts with the names the tests sign in under with the view-only
+   * password, because that password only works for a name on this tab.
+   */
+  const sheets = {
+    Players: tabFor([
+      ['Players', '', '', ''],
+      ['Player ID', 'Full Name', 'Jersey Number', 'Position'],
+      ['EX1', 'Example Player', '00', 'G'],
+      ['P1', 'Parent', '1', 'G'],
+      ['P2', 'Pat Parent', '2', 'F'],
+      ['P3', 'Pat Lee', '3', 'C'],
+      ['P4', 'Fan', '4', 'G'],
+    ]),
+  };
 
   const logTab = {
     appendRow: (r) => rows.push(r),
@@ -81,6 +95,7 @@ export function loadCodeGs(props = {}) {
       getScriptCache: () => ({
         get: (k) => (cache.has(k) ? cache.get(k) : null),
         put: (k, v) => cache.set(k, v),
+        remove: (k) => cache.delete(k),
       }),
     },
 
