@@ -130,7 +130,7 @@ test('an expired coach or admin token cannot save', () => {
 /* ---------------------------------------------------------------- */
 
 test('saving the same id twice replaces rather than duplicates', () => {
-  // The migration button can be clicked twice; that must be harmless.
+  // Re-publishing an edited play must update it in place.
   const ctx = ctxWith();
   ctx.fns.handleSavePlay({ token: ctx.admin, play: play('a', { name: 'First' }) });
   ctx.fns.handleSavePlay({ token: ctx.admin, play: play('a', { name: 'Second' }) });

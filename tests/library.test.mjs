@@ -253,7 +253,7 @@ test('carryOverTokens: an arrow far from everyone moves nothing', () => {
 });
 
 test('carryOverTokens: Horns Flare picks up where each step left off', () => {
-  const play = JSON.parse(readFileSync(new URL('../plays/general/horns-flare.json', import.meta.url)));
+  const play = JSON.parse(readFileSync(new URL('./fixtures/horns-flare.json', import.meta.url)));
   const [horns, flare] = play.frames;
 
   const afterHorns = carryOverTokens(horns);

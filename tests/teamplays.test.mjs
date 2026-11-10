@@ -1,13 +1,12 @@
 /**
  * The browser half of the sheet-backed team playbook: the shape the editor
- * depends on, what each failure should say, and the migration being safe to
- * run twice.
+ * depends on and what each failure should say.
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  rowsToTeam, titleFromSlug, playsToMigrate, saveMessage,
+  rowsToTeam, titleFromSlug, saveMessage,
 } from '../assets/js/teamplays.js';
 import { mergePlaybooks } from '../assets/js/playbooks.js';
 
@@ -89,37 +88,6 @@ test('a slug with no declared name gets a readable one', () => {
 });
 
 /* ---------------------------------------------------------------- */
-/* Migration                                                         */
-/* ---------------------------------------------------------------- */
-
-const filePlay = (id, name) => ({ id, name, frames: [] });
-
-test('migration moves only what the sheet does not already have', () => {
-  const pending = playsToMigrate(
-    [filePlay('a', 'Horns Flare'), filePlay('b', 'Overload')],
-    rowsToTeam([row('a')]).plays,
-  );
-  assert.deepEqual(pending.map((p) => p.id), ['b']);
-});
-
-test('clicking migrate twice is harmless', () => {
-  // The second click finds nothing left to move rather than duplicating.
-  const files = [filePlay('a', 'Horns Flare')];
-  const afterFirstRun = rowsToTeam([row('a')]).plays;
-  assert.deepEqual(playsToMigrate(files, afterFirstRun), []);
-});
-
-test('the offer disappears when there is nothing left in the files', () => {
-  assert.deepEqual(playsToMigrate([], rowsToTeam([row('a')]).plays), []);
-  assert.deepEqual(playsToMigrate([], []), []);
-});
-
-test('a file play with no id is not migrated', () => {
-  // It would arrive in the sheet with no identity and could never be updated.
-  assert.deepEqual(playsToMigrate([{ name: 'No id', frames: [] }], []), []);
-});
-
-/* ---------------------------------------------------------------- */
 /* What a failure should say                                         */
 /* ---------------------------------------------------------------- */
 
@@ -148,23 +116,23 @@ test('an unexpected refusal still says something true', () => {
 /* ---------------------------------------------------------------- */
 
 test('a coach and the admin can publish; a viewer and a signed-out browser cannot', async () => {
-  const { canPublish, canMigrate } = await import('../assets/js/teamplays.js');
+  const { canPublish } = await import('../assets/js/teamplays.js');
   const now = Date.now();
   const coach = { name: 'Casey Jones', token: 'tok', role: 'site', at: now };
   const viewer = { name: 'Pat', token: 'tok', role: 'viewer', at: now, until: now + 60_000 };
   const admin = { name: 'Logan Brose', token: 'tok', at: now, until: now + 60_000 };
 
   const cases = [
-    // [site session, admin session, canPublish, canMigrate, why]
-    [coach, null, true, false, 'a coach publishes, but the migration stays with the admin'],
-    [viewer, null, false, false, 'a viewer only reads'],
-    [coach, admin, true, true, 'the admin can do both'],
-    [null, null, false, false, 'nobody signed in'],
+    // [site session, admin session, canPublish, why]
+    [coach, null, true, 'a coach publishes'],
+    [viewer, null, false, 'a viewer only reads'],
+    [coach, admin, true, 'the admin publishes'],
+    [null, null, false, 'nobody signed in'],
   ];
 
   const previous = globalThis.localStorage;
   try {
-    for (const [site, adm, publish, migrate, why] of cases) {
+    for (const [site, adm, publish, why] of cases) {
       const store = new Map();
       globalThis.localStorage = {
         getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -174,7 +142,6 @@ test('a coach and the admin can publish; a viewer and a signed-out browser canno
       if (site) store.set('bb.gate.v1', JSON.stringify(site));
       if (adm) store.set('bb.admin.v1', JSON.stringify(adm));
       assert.equal(canPublish(), publish, `canPublish: ${why}`);
-      assert.equal(canMigrate(), migrate, `canMigrate: ${why}`);
     }
   } finally {
     if (previous === undefined) delete globalThis.localStorage;

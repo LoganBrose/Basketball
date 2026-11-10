@@ -73,6 +73,7 @@ export function loadCodeGs(props = {}) {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k) => (k in properties ? properties[k] : null),
+        setProperty: (k, v) => { properties[k] = String(v); },
       }),
     },
 
@@ -110,6 +111,7 @@ export function loadCodeGs(props = {}) {
   const exported = [
     'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleSignIns', 'handleData',
     'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'playsSheet',
+    'handleCheck', 'handleSignOutAll', 'readActiveSessions',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];
 
