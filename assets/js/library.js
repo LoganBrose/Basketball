@@ -44,17 +44,42 @@ const REACH = 2.5;
 const MOVERS = new Set(['offense', 'defense', 'coach']);
 
 /**
- * The tokens a new step starts with: everyone where the last step left them.
+ * A point on an arrow, t from 0 to 1. A curved arrow is a quadratic Bézier
+ * through its `ctrl` point; a straight one has none.
+ */
+export function pointAt(a, t) {
+  if (!a.ctrl) {
+    return { x: a.from.x + (a.to.x - a.from.x) * t, y: a.from.y + (a.to.y - a.from.y) * t };
+  }
+  const m = 1 - t;
+  return {
+    x: m * m * a.from.x + 2 * m * t * a.ctrl.x + t * t * a.to.x,
+    y: m * m * a.from.y + 2 * m * t * a.ctrl.y + t * t * a.to.y,
+  };
+}
+
+/**
+ * What a step's arrows do to its tokens, worked out once and shared by
+ * carryOverTokens (where the next step starts) and tokensAt (the animation),
+ * so the two can never disagree.
  *
  * Arrows aren't linked to tokens, so each is claimed by the nearest player at
  * its start. Cuts, dribbles and screens move that player to the arrow's end;
  * a pass hands the ball to whoever is nearest its end, so passes are applied
  * after movement — a pass to a cutter lands on the cutter.
+ *
+ * Returns token indexes into frame.tokens, plus:
+ *   mid   the tokens after movement, before any pass
+ *   end   the tokens once the step is over
+ *   moves    [{ index, arrow }]   a token following an arrow (a dribbled ball too)
+ *   passes   [{ arrow, ballIdx, passerIdx, from, to }]  the ball in the air;
+ *            ballIdx is null when the ball is a flag on the passer
  */
-export function carryOverTokens(frame) {
-  const tokens = structuredClone(frame.tokens || []).map((t) => ({ ...t, id: uid(), start: { x: t.x, y: t.y } }));
+export function planStep(frame) {
+  const tokens = structuredClone(frame.tokens || []).map((t) => ({ ...t, start: { x: t.x, y: t.y } }));
   const arrows = frame.arrows || [];
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const idx = (t) => (t ? tokens.indexOf(t) : null);
 
   const nearest = (pool, pt, at = (t) => [t.start]) => {
     let best = null;
@@ -70,26 +95,37 @@ export function carryOverTokens(frame) {
 
   const balls = tokens.filter((t) => t.kind === 'ball');
   const moved = new Set();
+  const moves = [];
 
   for (const a of arrows) {
     if (a.kind === 'pass') continue;
     const owner = nearest(tokens.filter((t) => MOVERS.has(t.kind) && !moved.has(t)), a.from);
     if (!owner) continue;
     moved.add(owner);
+    moves.push({ index: idx(owner), arrow: a });
     if (a.kind === 'dribble') {
       const ball = nearest(balls.filter((b) => !moved.has(b)), owner.start);
-      if (ball) { moved.add(ball); ball.x = a.to.x; ball.y = a.to.y; }
+      if (ball) {
+        moved.add(ball);
+        ball.x = a.to.x; ball.y = a.to.y;
+        moves.push({ index: idx(ball), arrow: a });
+      }
     }
     owner.x = a.to.x;
     owner.y = a.to.y;
   }
 
+  const strip = (list) => list.map(({ start, ...t }) => structuredClone(t));
+  const mid = strip(tokens);
+
   const players = tokens.filter((t) => MOVERS.has(t.kind));
+  const passes = [];
   for (const a of arrows) {
     if (a.kind !== 'pass') continue;
     const passer = nearest(players, a.from);
     const receiver = nearest(players, a.to, (t) => [t.start, t]);
     const ball = nearest(balls, passer ? passer.start : a.from);
+    const from = ball ? { x: ball.x, y: ball.y } : passer ? { x: passer.x, y: passer.y } : { ...a.from };
 
     if (receiver && receiver !== passer) {
       // The ball is either a flag on the passer or a loose token beside them.
@@ -97,13 +133,89 @@ export function carryOverTokens(frame) {
       if (passer) passer.hasBall = false;
       if (ball) { ball.x = receiver.x; ball.y = receiver.y; }
       if (flagged || !ball) receiver.hasBall = true;
+      passes.push({
+        arrow: a, ballIdx: idx(ball), passerIdx: idx(passer),
+        from, to: { x: receiver.x, y: receiver.y },
+      });
     } else if (ball) {
       ball.x = a.to.x;
       ball.y = a.to.y;
+      passes.push({ arrow: a, ballIdx: idx(ball), passerIdx: idx(passer), from, to: { ...a.to } });
     }
   }
 
-  return tokens.map(({ start, ...t }) => t);
+  return { mid, end: strip(tokens), moves, passes };
+}
+
+/**
+ * The tokens a new step starts with: everyone where the last step left them.
+ */
+export function carryOverTokens(frame) {
+  return planStep(frame).end.map((t) => ({ ...t, id: uid() }));
+}
+
+/** Slow out of the start and into the finish, so a cut reads as a cut. */
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
+const clamp01 = (t) => Math.min(1, Math.max(0, t));
+
+/** The share of a step spent moving; the rest is the ball in the air. */
+export const MOVE_SHARE = 0.6;
+
+/**
+ * Where everything is at moment t (0 to 1) of a step, for the Play animation.
+ *
+ * Players move first, along their arrows' curves, then passes fly — the same
+ * order carryOverTokens applies them in, so t = 1 is exactly where the next
+ * step starts. A step with only movement or only passes gives it the whole
+ * time.
+ *
+ * Returns { tokens, flyingBalls }: flyingBalls are balls in the air that, when
+ * still, are drawn as a flag on a player rather than as a token.
+ */
+export function tokensAt(frame, t, plan = planStep(frame)) {
+  t = clamp01(Number(t) || 0);
+  if (t >= 1) return { tokens: structuredClone(plan.end), flyingBalls: [] };
+
+  const hasMoves = plan.moves.length > 0;
+  const hasPasses = plan.passes.length > 0;
+  const moveEnd = !hasPasses ? 1 : !hasMoves ? 0 : MOVE_SHARE;
+
+  if (t < moveEnd || !hasPasses) {
+    const u = ease(clamp01(t / moveEnd));
+    const tokens = structuredClone(frame.tokens || []);
+    for (const m of plan.moves) {
+      // An arrow is drawn from near the player, not from their centre: start
+      // where they stand and blend onto the curve, so nobody jumps at t = 0.
+      const t0 = tokens[m.index];
+      const on = pointAt(m.arrow, u);
+      const dx = t0.x - m.arrow.from.x;
+      const dy = t0.y - m.arrow.from.y;
+      t0.x = on.x + dx * (1 - u);
+      t0.y = on.y + dy * (1 - u);
+    }
+    return { tokens, flyingBalls: [] };
+  }
+
+  const v = ease(clamp01((t - moveEnd) / (1 - moveEnd)));
+  const tokens = structuredClone(plan.mid);
+  const flyingBalls = [];
+  for (const pass of plan.passes) {
+    // Follow the arrow's curve, nudged so the flight starts at the ball and
+    // lands on the receiver even when the arrow was drawn a little off them.
+    const on = pointAt(pass.arrow, v);
+    const p = {
+      x: on.x + (pass.from.x - pass.arrow.from.x) * (1 - v) + (pass.to.x - pass.arrow.to.x) * v,
+      y: on.y + (pass.from.y - pass.arrow.from.y) * (1 - v) + (pass.to.y - pass.arrow.to.y) * v,
+    };
+    if (pass.ballIdx != null) {
+      tokens[pass.ballIdx].x = p.x;
+      tokens[pass.ballIdx].y = p.y;
+    } else {
+      if (pass.passerIdx != null) tokens[pass.passerIdx].hasBall = false;
+      flyingBalls.push(p);
+    }
+  }
+  return { tokens, flyingBalls };
 }
 
 export function newPlay(overrides = {}) {

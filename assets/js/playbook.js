@@ -13,6 +13,7 @@ import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl,
+  pointAt, planStep, tokensAt,
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
@@ -63,6 +64,8 @@ const S = {
   rosterError: null,
   // Signed in with the view-only password: the team playbook, read-only.
   viewer: false,
+  // The Play animation while it runs: { t, plan, raf, last }. Null otherwise.
+  anim: null,
 };
 
 /** Where each player starts when you add them, so a set takes seconds to lay out. */
@@ -121,17 +124,6 @@ function toCourt(evt) {
 /* ------------------------------------------------------------------ */
 /* Arrow geometry                                                      */
 /* ------------------------------------------------------------------ */
-
-function pointAt(a, t) {
-  if (!a.ctrl) {
-    return { x: a.from.x + (a.to.x - a.from.x) * t, y: a.from.y + (a.to.y - a.from.y) * t };
-  }
-  const m = 1 - t;
-  return {
-    x: m * m * a.from.x + 2 * m * t * a.ctrl.x + t * t * a.to.x,
-    y: m * m * a.from.y + 2 * m * t * a.ctrl.y + t * t * a.to.y,
-  };
-}
 
 function tangentAt(a, t) {
   if (!a.ctrl) return { x: a.to.x - a.from.x, y: a.to.y - a.from.y };
@@ -221,12 +213,12 @@ function defs(id = 'ah') {
   return d;
 }
 
-function renderToken(t, ghost = false) {
+function renderToken(t, ghost = false, still = false) {
   const g = node('g', {
-    class: `token ${t.kind}${ghost ? ' ghost' : ''}${isSelected('token', t.id) ? ' selected' : ''}`,
+    class: `token ${t.kind}${ghost ? ' ghost' : ''}${!still && isSelected('token', t.id) ? ' selected' : ''}${still ? ' anim' : ''}`,
     transform: `translate(${t.x} ${t.y})`,
   });
-  if (!ghost) g.setAttribute('data-id', t.id);
+  if (!ghost && !still) g.setAttribute('data-id', t.id);
 
   if (t.kind === 'offense') {
     const player = playerInSlot(t.label, S.lineup, S.roster);
@@ -324,6 +316,13 @@ function render() {
 
   const content = node('g', { class: 'content' });
 
+  if (S.anim) {
+    renderAnimation(content);
+    svg.append(content);
+    renderFrames();
+    return;
+  }
+
   // The previous step, faded, so you can see what moved.
   if (S.ghost && S.frame > 0) {
     const prev = S.play.frames[S.frame - 1];
@@ -347,6 +346,90 @@ function render() {
   $('#pb-undo').disabled = S.undo.length === 0;
   $('#pb-redo').disabled = S.redo.length === 0;
   $('#pb-delete').disabled = !S.selection;
+}
+
+/* ------------------------------------------------------------------ */
+/* Play animation                                                      */
+/* ------------------------------------------------------------------ */
+
+/** How long one step takes to play out, in milliseconds. */
+const STEP_MS = 1400;
+/** With reduced motion there is no tweening: each step is simply shown this long. */
+const STEP_STILL_MS = 1000;
+const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * One moment of the animation: the step's arrows faded underneath, and the
+ * tokens wherever tokensAt says they are. Nothing here is selectable.
+ */
+function renderAnimation(content) {
+  const f = frame();
+  // Reduced motion shows each step as drawn, then the next — no in-between.
+  const t = S.anim.still ? 0 : S.anim.t;
+  const { tokens, flyingBalls } = tokensAt(f, t, S.anim.plan);
+  const trail = node('g', { class: 'anim-trail' });
+  for (const a of f.arrows) trail.append(renderArrow(a, true));
+  content.append(trail);
+  for (const t of tokens) content.append(renderToken(t, false, true));
+  for (const b of flyingBalls) {
+    content.append(node('circle', { cx: b.x, cy: b.y, r: 0.62, class: 'tok-ball anim-ball' }));
+  }
+  const notes = node('g', { class: 'anim-notes' });
+  for (const t of f.texts) notes.append(renderText(t, true));
+  content.append(notes);
+}
+
+function setPlayButton() {
+  const btn = $('#fr-play');
+  if (!btn) return;
+  btn.textContent = S.anim ? '■ Stop' : '▶ Play';
+  btn.setAttribute('aria-pressed', S.anim ? 'true' : 'false');
+  btn.title = S.anim ? 'Stop the animation' : 'Watch the play move, from this step to the end';
+}
+
+/** Start from the current step and run to the end of the play. */
+function startAnimation() {
+  if (S.anim) return;
+  // Pressing Play on the last step replays the whole play rather than one step.
+  if (S.frame >= S.play.frames.length - 1 && S.play.frames.length > 1 && !hasMotion(frame())) S.frame = 0;
+  S.selection = null;
+  S.drag = null;
+  S.draft = null;
+  S.anim = { t: 0, plan: planStep(frame()), raf: 0, last: null, still: reducedMotion() };
+  setPlayButton();
+  S.anim.raf = requestAnimationFrame(tick);
+}
+
+const hasMotion = (f) => (f.arrows || []).length > 0;
+
+function tick(now) {
+  const a = S.anim;
+  if (!a) return;
+  const dt = a.last == null ? 0 : now - a.last;
+  a.last = now;
+  a.t += dt / (a.still ? STEP_STILL_MS : STEP_MS);
+
+  if (a.t >= 1) {
+    if (S.frame >= S.play.frames.length - 1) {
+      stopAnimation();
+      return;
+    }
+    S.frame += 1;
+    a.t = 0;
+    a.plan = planStep(frame());
+  }
+
+  render();
+  a.raf = requestAnimationFrame(tick);
+}
+
+/** Stop, and leave the step on screen exactly as it was drawn. */
+function stopAnimation() {
+  if (!S.anim) return;
+  cancelAnimationFrame(S.anim.raf);
+  S.anim = null;
+  setPlayButton();
+  render();
 }
 
 /* ------------------------------------------------------------------ */
@@ -849,6 +932,7 @@ function bindForm() {
 }
 
 function loadPlay(play) {
+  if (S.anim) { cancelAnimationFrame(S.anim.raf); S.anim = null; setPlayButton(); }
   S.play = normalizePlay(structuredClone(play));
   S.frame = 0;
   S.selection = null;
@@ -1543,6 +1627,14 @@ function bind() {
   $('#fr-next').addEventListener('click', () => { S.frame = Math.min(S.play.frames.length - 1, S.frame + 1); S.selection = null; render(); });
   $('#fr-add').addEventListener('click', addFrame);
   $('#fr-del').addEventListener('click', deleteFrame);
+  $('#fr-play').addEventListener('click', () => (S.anim ? stopAnimation() : startAnimation()));
+
+  // Touching anything else — the court, a step, a tool, another play — stops
+  // the animation first, so it never fights an edit. Capture phase, so this
+  // runs before whatever the press was meant for.
+  document.addEventListener('pointerdown', (e) => {
+    if (S.anim && !e.target.closest?.('#fr-play')) stopAnimation();
+  }, true);
   $('#fr-ghost').addEventListener('change', (e) => { S.ghost = e.target.checked; render(); });
 
   $('#lineup-clear').addEventListener('click', () => {
@@ -1614,6 +1706,16 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
     if (typing) return;
+
+    if (S.anim) {
+      // Space toggles; any other key stops and then does what it normally does.
+      if (e.key === ' ' && e.target.id !== 'fr-play') { e.preventDefault(); stopAnimation(); return; }
+      stopAnimation();
+    } else if (e.key === ' ' && e.target === document.body) {
+      e.preventDefault();
+      startAnimation();
+      return;
+    }
 
     // A viewer gets the arrow keys for stepping through, and nothing that edits.
     if (S.viewer) {

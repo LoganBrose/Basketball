@@ -227,6 +227,13 @@ a player with a cut, dribble or screen arrow starts at its end, and a pass hands
 receiver. Undo if you wanted it different. The previous step shows through faded. Double-click a
 step chip to rename it.
 
+**▶ Play** animates the play from the current step to the end: players run along their arrows,
+curves included, and then the ball flies along each pass. It moves exactly as **+ Step** carries
+players over, so where the animation ends one step is where the next one starts. Press **■ Stop**, or
+tap anything else, to stop on the step as drawn. The space bar starts and stops it. Viewers get it too.
+With *reduce motion* turned on in your device settings, it shows each step in turn without the
+movement.
+
 **Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines,
 drawn to scale in feet.
 
