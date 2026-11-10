@@ -42,15 +42,18 @@ jobs:
         with:
           node-version: '20'
 
-      # Regenerate the team playbook index so adding a play is just adding a file.
-      - name: Build plays index
-        run: node tools/build-plays-index.mjs
+      # Regenerate the team playbook index (so adding a play is just adding a
+      # file), then copy only the servable files into dist/. Publishing dist/
+      # rather than the repo root keeps tests/, tools/, apps-script/, README.md
+      # and package.json off the public site.
+      - name: Build site
+        run: npm run build
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
 
       - id: deployment
         uses: actions/deploy-pages@v4

@@ -8,11 +8,11 @@
  * node_modules is not excluded from dist/, it is simply not in it.
  *
  * The list below is a WHITELIST on purpose. A new top-level folder is left out
- * by default rather than silently published, which is also how tests/, tools/
- * and .github/ stop being served — true of the current GitHub Pages deploy and
- * not something anyone intended.
+ * by default rather than silently published, which is also how tests/, tools/,
+ * apps-script/ and .github/ stay off the public site.
  *
- * GitHub Pages is unaffected: it serves the repo root, which this never touches.
+ * Both hosts publish dist/: Cloudflare Pages via its build settings, and GitHub
+ * Pages via .github/workflows/pages.yml.
  */
 
 import { cpSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs';

@@ -1,7 +1,7 @@
 # Coach Tools
 
-Two static basketball coaching tools, deployable to GitHub Pages. No server, no build step, no
-dependencies.
+Two static basketball coaching tools, deployable to GitHub Pages. No server, nothing to compile, no
+dependencies — deploying only copies the site's files into `dist/`.
 
 | Tool | What it does |
 |---|---|
@@ -100,13 +100,16 @@ If neither route works the site falls back to the bundled sample data in `data/s
 
 ### 4. Deploy
 
-Push to the default branch. The workflow runs the unit tests, regenerates the team playbook index,
-and deploys the repo root. If Pages is set to "Deploy from branch" instead of "GitHub Actions", that
-works too — the repo is a plain static site.
+Push to the default branch. The workflow runs the unit tests, then `npm run build` (regenerates the
+team playbook index and copies the servable files into `dist/`), and deploys `dist/`.
+
+In the repo's **Settings → Pages**, set **Source** to **GitHub Actions**. "Deploy from branch" would
+skip the workflow and serve the whole repo — `tests/`, `tools/`, `apps-script/`, this README — to
+anyone with the link.
 
 #### Cloudflare Pages
 
-GitHub Pages is primary and none of this changes it. To also serve from Cloudflare:
+GitHub Pages is primary. To also serve from Cloudflare, using the same build:
 
 | Setting | Value |
 |---|---|
@@ -130,8 +133,8 @@ Both halves matter:
   entirely. It isn't excluded; it simply isn't there.
 
 `tools/build-site.mjs` copies a **whitelist**, so a new top-level folder stays unpublished unless
-someone adds it. That also stops `tests/`, `tools/`, `apps-script/` and `package.json` being served,
-which they currently are on GitHub Pages and never should have been. The script fails the build if
+someone adds it. That also keeps `tests/`, `tools/`, `apps-script/` and `package.json` off the public
+site, on both hosts. The script fails the build if
 any file in `dist/` exceeds 25 MiB, rather than letting Cloudflare discover it.
 
 ---
@@ -555,12 +558,12 @@ This changes what the site renders. A published sheet still contains full names.
 ```sh
 npm test          # unit tests — no dependencies, uses node --test
 npm run serve     # http://localhost:8000
-npm run build     # regenerate the plays index, then fill dist/
+npm run build     # regenerate the plays index, then fill dist/ (what both hosts deploy)
 npm run build:plays
 ```
 
 `package.json` exists only to mark the modules as ESM for Node's test runner and to hold these
-scripts. There are no dependencies and nothing is bundled — what's in the repo is what ships.
+scripts. There are no dependencies and nothing is bundled — the site's files ship exactly as they are in the repo.
 
 | File | Purpose |
 |---|---|
