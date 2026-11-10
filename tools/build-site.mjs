@@ -30,7 +30,7 @@ const INCLUDE = [
   'admin.html',
   'assets',
   'data',
-  'plays',        // still served while the team playbook lives in files
+  'plays',        // only exists when sign-in is off and plays are published as files
   '.nojekyll',
 ];
 
@@ -73,7 +73,7 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(2)} MiB`;
 
 console.log(`dist/ ← ${copied.join(', ')}`);
 if (missing.length) {
-  // Not fatal: plays/ disappears once the team playbook moves to the sheet.
+  // Not fatal: plays/ only exists when sign-in is off.
   console.log(`not present, skipped: ${missing.join(', ')}`);
 }
 console.log(`largest file: ${relative(DIST, worst.path) || '(none)'} — ${mb(worst.size)}`);

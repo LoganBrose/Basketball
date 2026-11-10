@@ -18,8 +18,7 @@ import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
 import { isEnabled, isViewer, readSession, sessionValid, siteMaxAge } from './gate.js';
 import {
-  usingScript, canPublish, canMigrate, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
-  playsToMigrate, readFilePlays, migrateFilePlays,
+  usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
 } from './teamplays.js';
 import { shortName } from './model.js';
 import { printPlay, printPlaybook } from './printout.js';
@@ -1099,7 +1098,6 @@ async function renderTeam() {
   S.teamError = error;
 
   renderLibraryAll();   // published badges depend on the team list
-  refreshMigration();
   if (S.viewer) openFirstTeamPlay();
 }
 
@@ -1111,63 +1109,6 @@ function openFirstTeamPlay() {
     loadPlay(structuredClone(shown[0]));
     renderTeamList();
   }
-}
-
-/* ------------------------------------------------------------------ */
-/* Migration from plays/ into the sheet                                */
-/* ------------------------------------------------------------------ */
-
-/**
- * Offer to move whatever is still in `plays/` into the sheet.
- *
- * Shown only to an admin, only while the files still hold plays the sheet
- * lacks, and it disappears the moment there is nothing left to move — so it
- * cannot linger as a button that does nothing.
- */
-async function refreshMigration() {
-  const host = $('#team-migrate');
-  if (!host) return;
-
-  host.hidden = true;
-  host.replaceChildren();
-
-  if (!usingScript() || !canMigrate()) return;
-
-  const filePlays = await readFilePlays();
-  const pending = playsToMigrate(filePlays, S.team);
-  if (pending.length === 0) return;
-
-  const note = document.createElement('p');
-  note.className = 'small';
-  note.textContent = `${pending.length} play${pending.length === 1 ? '' : 's'} still only in the site's files.`;
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn btn-primary';
-  btn.textContent = 'Move team plays into the sheet';
-
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    btn.textContent = 'Moving…';
-
-    const { moved, failed } = await migrateFilePlays(pending);
-
-    if (failed.length) {
-      note.className = 'small missing';
-      note.textContent = `Moved ${moved}. ${failed.length} failed: ${failed[0].message}`;
-      btn.disabled = false;
-      btn.textContent = 'Try again';
-      return;
-    }
-
-    note.className = 'small';
-    note.textContent = `Moved ${moved} play${moved === 1 ? '' : 's'}.`;
-    btn.remove();
-    renderTeam();
-  });
-
-  host.append(note, btn);
-  host.hidden = false;
 }
 
 /** Render only — changing the playbook picker must not refetch the site. */

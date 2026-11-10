@@ -1125,6 +1125,8 @@ html.gated body > *:not(.gate) { visibility: hidden; }
 
 .admin-head p { margin: 0; }
 
+.admin-actions { margin-top: 12px; }
+
 .gate-card-inline { max-width: 380px; }
 .gate-card-inline h2 { margin: 0 0 4px; }
 .gate-card-inline .gate-form { margin-top: 14px; }
@@ -1142,5 +1144,3 @@ tr.flagged-row td { color: var(--flag); }
   :root:not([data-theme='light']) .play-action.danger { color: #fca5a5; }
 }
 
-#team-migrate { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-#team-migrate p { margin: 0; }

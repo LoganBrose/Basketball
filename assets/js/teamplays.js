@@ -10,8 +10,8 @@
  * publish to or remove from the team playbook. A view-only sign-in can only
  * read, and the script refuses a viewer token for anything else.
  *
- * While `plays/` still exists this module also reads it, so nothing is lost
- * before the migration has run.
+ * The old `plays/` folder has been deleted; with sign-in configured the sheet
+ * is the only team playbook.
  */
 
 import { CONFIG } from './config.js';
@@ -30,11 +30,6 @@ const siteToken = () => {
   return sessionValid(site, siteMaxAge(gate)) ? site.token : '';
 };
 
-const adminToken = () => {
-  const admin = readAdminSession();
-  return sessionValid(admin, adminMaxAge(CONFIG.gate || {})) ? admin.token : '';
-};
-
 /**
  * The token that may change the team playbook: the admin's if there is one,
  * otherwise the coach's. A viewer's session holds a viewer token, which the
@@ -44,9 +39,6 @@ const writeToken = () => (isViewer() ? '' : siteToken());
 
 /** Any signed-in coach (or the admin) may change the team playbook. */
 export const canPublish = () => !usingScript() || Boolean(writeToken());
-
-/** Moving `plays/` into the sheet is a one-time job, kept for the admin. */
-export const canMigrate = () => !usingScript() || Boolean(adminToken());
 
 /** "zone-offense" -> "Zone Offense", for a playbook nobody named. */
 export function titleFromSlug(slug) {
@@ -175,54 +167,4 @@ export async function deleteTeamPlay(id) {
     };
   }
   return { ok: true, message: '' };
-}
-
-/* ------------------------------------------------------------------ */
-/* Migration                                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Which plays are in `plays/` but not yet in the sheet.
- *
- * Pure and by id, so clicking the migration button twice is harmless: the
- * second click finds nothing left to move rather than making duplicates.
- */
-export function playsToMigrate(filePlays = [], sheetPlays = []) {
-  const have = new Set(sheetPlays.map((p) => p.id));
-  return filePlays.filter((p) => p && p.id && !have.has(p.id));
-}
-
-/**
- * Read whatever is still in `plays/`, so the migration has a source.
- * A missing index is the expected state after commit 3b, not an error.
- */
-export async function readFilePlays() {
-  try {
-    const { plays, error } = await loadTeamPlaybook();
-    return error ? [] : plays;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Copy plays from `plays/` into the sheet, one at a time.
- *
- * Sequential rather than parallel: each save takes the script lock, and firing
- * a dozen at once would just queue them behind each other while burning
- * concurrent executions.
- *
- * @returns {Promise<{moved: number, failed: {name: string, message: string}[]}>}
- */
-export async function migrateFilePlays(filePlays) {
-  const failed = [];
-  let moved = 0;
-
-  for (const play of filePlays) {
-    const result = await saveTeamPlay(play);
-    if (result.ok) moved++;
-    else failed.push({ name: play.name || play.id, message: result.message });
-  }
-
-  return { moved, failed };
 }
