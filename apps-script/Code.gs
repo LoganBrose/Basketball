@@ -15,10 +15,13 @@
  *   STATS_SHEET_ID  the spreadsheet holding StatsLog, Players and Games
  *   TOKEN_SECRET    any long random string
  *
- * Optional, if you want different session lengths than the defaults:
+ * Optional:
  *
- *   SITE_DAYS       how long a team sign-in lasts   (default 30)
- *   ADMIN_HOURS     how long an admin session lasts (default 24)
+ *   VIEWER_PASSWORD a view-only login: the team playbook and nothing else.
+ *                   Leave it unset and there is no viewer login at all.
+ *   SITE_DAYS       how long a team or viewer sign-in lasts (default 30)
+ *   ADMIN_HOURS     how long an admin session lasts         (default 24)
+ *   SIGNIN_DAYS     how far back the admin sign-in list goes (default 30)
  *
  * These are the lengths that actually matter. config.gate.days and
  * config.gate.adminHours on the site only decide when a browser stops offering
@@ -108,6 +111,10 @@ function json(obj) {
  *
  * An admin always gets a site token as well as an admin one, so every path that
  * only needs a site token keeps working without special-casing the admin.
+ *
+ * The viewer password, if VIEWER_PASSWORD is set, signs you in with a 'viewer'
+ * token. That token reads the team playbook and nothing else: no roster, no
+ * stats, no writes. If two passwords happen to match, the stronger role wins.
  */
 function handleSignIn(body) {
   var name = cleanName(body.name);
@@ -128,13 +135,27 @@ function handleSignIn(body) {
   var okAdminPassword = constantTimeEquals(given, prop('ADMIN_PASSWORD'));
   var okAdmin = okAdminName && okAdminPassword;
 
+  // Optional, so an unset property must never match an empty password.
+  var viewerPassword = optionalProp('VIEWER_PASSWORD');
+  var okViewer = constantTimeEquals(given, viewerPassword) && viewerPassword !== '';
+
   // One failure path, whichever half was wrong. The admin password under the
   // wrong name is refused exactly like any other bad guess.
-  if (!(okSite || okAdmin)) return failed(name, page, ua, 'site');
+  if (!(okSite || okAdmin || okViewer)) return failed(name, page, ua, 'site');
+
+  if (!okSite && !okAdmin) {
+    log(name, page, ua, 'viewer');
+    return { ok: true, name: name, role: 'viewer', token: makeToken('viewer', name, siteExpiry()) };
+  }
 
   log(name, page, ua, okAdmin ? 'admin' : 'signin');
 
-  var out = { ok: true, name: name, token: makeToken('site', name, siteExpiry()) };
+  var out = {
+    ok: true,
+    name: name,
+    role: okAdmin ? 'admin' : 'site',
+    token: makeToken('site', name, siteExpiry()),
+  };
   if (okAdmin) out.adminToken = makeToken('admin', name, adminExpiry());
   return out;
 }
@@ -258,15 +279,17 @@ function playsSheet() {
 }
 
 /**
- * Every play, for any signed-in coach.
+ * Every play, for any signed-in coach or viewer.
  *
- * Reading takes a site token so the playbook works on a phone with the team
- * password. Writing does not — see handleSavePlay.
+ * Reading takes a site (or viewer) token so the playbook works on a phone with
+ * the team password. Writing does not — see handleSavePlay. This is the only
+ * action a viewer token is good for.
  */
 function handlePlays(body) {
   var site = verifyToken(body.token, 'site');
   var admin = verifyToken(body.token, 'admin');
-  if (!site.ok && !admin.ok) return { ok: false, reason: 'auth' };
+  var viewer = verifyToken(body.token, 'viewer');
+  if (!site.ok && !admin.ok && !viewer.ok) return { ok: false, reason: 'auth' };
 
   var values = playsSheet().getDataRange().getDisplayValues();
   var plays = [];
@@ -545,14 +568,31 @@ function log(name, page, ua, result) {
   logSheet().appendRow([new Date(), name, page, ua, result]);
 }
 
-/** Newest first, so the admin view does not have to sort a growing sheet. */
+/**
+ * The last SIGNIN_DAYS (default 30) of sign-ins, newest first, so the admin
+ * view does not have to sort or trim a growing sheet.
+ *
+ * Older rows stay in the sheet; they just stop being sent. The cut-off reads
+ * the raw cell values, where a timestamp is a real Date, rather than parsing
+ * the displayed text, whose format depends on the spreadsheet's locale.
+ */
 function readSignIns() {
-  var values = logSheet().getDataRange().getDisplayValues();
+  var range = logSheet().getDataRange();
+  var values = range.getDisplayValues();
   if (values.length < 2) return [];
 
-  var rows = values.slice(1).map(function (r) {
-    return { at: r[0], name: r[1], page: r[2], ua: r[3], result: r[4] || 'signin' };
-  });
+  var raw = range.getValues();
+  var cutoff = Date.now() - numberProp('SIGNIN_DAYS', 30) * 24 * 60 * 60 * 1000;
+
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    var when = raw[i] && raw[i][0];
+    var ms = when instanceof Date ? when.getTime() : new Date(when).getTime();
+    if (!(ms >= cutoff)) continue;   // too old, or not a readable time
+
+    var r = values[i];
+    rows.push({ at: r[0], name: r[1], page: r[2], ua: r[3], result: r[4] || 'signin' });
+  }
   return rows.reverse();
 }
 
@@ -566,6 +606,12 @@ function prop(key) {
     throw new Error('Missing Script Property: ' + key);
   }
   return value;
+}
+
+/** A property that may legitimately be unset. '' when it is. */
+function optionalProp(key) {
+  var value = PropertiesService.getScriptProperties().getProperty(key);
+  return value == null ? '' : String(value);
 }
 
 function numberProp(key, fallback) {
@@ -608,5 +654,6 @@ function checkSetup() {
   }
 
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
+  Logger.log('Viewer login is %s.', optionalProp('VIEWER_PASSWORD') ? 'ON' : 'off (VIEWER_PASSWORD not set)');
   Logger.log('Setup looks good.');
 }

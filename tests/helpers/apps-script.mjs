@@ -52,6 +52,11 @@ export function loadCodeGs(props = {}) {
         ['Timestamp', 'Name', 'Page', 'User agent', 'Result'],
         ...rows.map((r) => r.map((cell) => String(cell))),
       ],
+      // Raw values, as Sheets returns them: a timestamp cell is a Date.
+      getValues: () => [
+        ['Timestamp', 'Name', 'Page', 'User agent', 'Result'],
+        ...rows.map((r) => r.slice()),
+      ],
     }),
   };
 

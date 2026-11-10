@@ -128,6 +128,13 @@ window.__gateFailsafe = setTimeout(function () {
           <label for="p-notes">Notes</label>
           <textarea id="p-notes" rows="3" placeholder="Coaching points, reads, counters…"></textarea>
         </div>
+        <div class="field" id="p-video-field">
+          <label for="p-video">Video link <span class="muted">YouTube</span></label>
+          <input type="url" id="p-video" placeholder="https://youtube.com/watch?v=…" inputmode="url" autocomplete="off">
+        </div>
+        <p class="pb-video" id="p-video-row" hidden>
+          <a class="btn" id="p-video-open" href="#" target="_blank" rel="noopener">▶ Watch video</a>
+        </p>
 
         <div class="pb-two">
           <div class="field">
@@ -154,13 +161,13 @@ window.__gateFailsafe = setTimeout(function () {
         </div>
         <p class="small muted" id="publish-note"></p>
 
-        <div class="pb-actions">
+        <div class="pb-actions pb-edit-only">
           <button type="button" class="btn" id="p-new">New play</button>
           <button type="button" class="btn" id="p-dup">Duplicate</button>
           <button type="button" class="btn danger" id="p-delete">Delete</button>
         </div>
 
-        <details class="panel secondary">
+        <details class="panel secondary pb-edit-only">
           <summary>More</summary>
           <div class="panel-body">
             <p class="small muted">For re-importing into the play builder. Not a viewable

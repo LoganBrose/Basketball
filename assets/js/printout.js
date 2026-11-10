@@ -12,6 +12,7 @@
  */
 
 import { courtSize, renderCourt, SVG_NS } from './court.js';
+import { safeVideoUrl } from './library.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -78,6 +79,15 @@ export function playSection(play, draw, { startOnNewPage = false } = {}) {
     notes.append(el('h2', null, 'Notes'));
     notes.append(el('p', null, play.notes));
     section.append(notes);
+  }
+
+  const video = safeVideoUrl(play.youtube);
+  if (video) {
+    const p = el('p', 'print-video', 'Video: ');
+    const a = el('a', null, video);
+    a.href = video;
+    p.append(a);
+    section.append(p);
   }
 
   return section;
