@@ -129,3 +129,28 @@ test('searching finds a play by its video link', () => {
   const p = newPlay({ name: 'Horns', youtube: 'https://youtu.be/hornsclip' });
   assert.equal(searchPlays([p], 'hornsclip').length, 1);
 });
+
+/* ---------------------------------------------------------------- */
+/* Viewer sign-ins last one day                                      */
+/* ---------------------------------------------------------------- */
+
+test('a viewer sign-in lasts 24 hours by default; a team one still lasts 30 days', () => {
+  const { fns } = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
+  const now = Date.now();
+  const res = fns.handleSignIn({ name: 'Parent', password: 'view-pw' });
+
+  assert.ok(Math.abs(res.expiresAt - (now + DAY)) < 5000, 'about a day from now');
+  assert.equal(fns.verifyToken(res.token, 'viewer').ok, true);
+  assert.equal(fns.verifyToken(fns.makeToken('viewer', 'Parent', now - 1), 'viewer').ok, false, 'expired');
+
+  const team = fns.handleSignIn({ name: 'Coach', password: 'team-pw' });
+  const expiry = Number(Buffer.from(team.token.split('.')[0], 'base64url').toString().split('|')[2]);
+  assert.ok(expiry - now > 29 * DAY, 'team sign-in unchanged');
+  assert.equal(team.expiresAt, undefined);
+});
+
+test('VIEWER_HOURS changes how long a viewer sign-in lasts', () => {
+  const { fns } = loadCodeGs({ VIEWER_PASSWORD: 'view-pw', VIEWER_HOURS: '2' });
+  const res = fns.handleSignIn({ name: 'Parent', password: 'view-pw' });
+  assert.ok(Math.abs(res.expiresAt - (Date.now() + 2 * 60 * 60 * 1000)) < 5000);
+});
