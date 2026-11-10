@@ -1030,6 +1030,11 @@ details.card.collapsible > *:not(summary) { margin-left: 18px; margin-right: 18p
 details.card.collapsible > *:not(summary):first-of-type { margin-top: 14px; }
 details.card.collapsible > *:last-child { margin-bottom: 16px; }
 
+/* A table sits in a .table-scroll box: it fits inside the margins above (a bare
+   table's width: 100% ignores them and runs past the card's right edge) and
+   scrolls sideways on a phone instead of widening the page. */
+details.card.collapsible > .field + .table-scroll { margin-top: 12px; }
+
 @media print { details.card.collapsible { display: none; } }
 
 /* ------------------------------------------------------------------ */

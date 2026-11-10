@@ -158,7 +158,7 @@ function renderActive(host, active) {
       body.append(tr);
     }
     table.append(body);
-    card.append(table);
+    card.append(el('div', { class: 'table-scroll' }, table));
   } else {
     card.append(el('p', { class: 'small muted', text: 'Nobody is signed in.' }));
   }
@@ -238,7 +238,7 @@ export function renderSignIns(host, rows, active, days = 30) {
     pBody.append(tr);
   }
   pTable.append(pBody);
-  peopleCard.append(pTable);
+  peopleCard.append(el('div', { class: 'table-scroll' }, pTable));
   host.append(peopleCard);
 
   /* Every sign-in ------------------------------------------------ */
@@ -259,7 +259,7 @@ export function renderSignIns(host, rows, active, days = 30) {
 
   const tbody = el('tbody');
   table.append(tbody);
-  logCard.append(table);
+  logCard.append(el('div', { class: 'table-scroll' }, table));
 
   const count = el('p', { class: 'small muted' });
   logCard.append(count);
