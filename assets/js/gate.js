@@ -231,6 +231,18 @@ function shortUa() {
 }
 
 /**
+ * "10 minutes", "1 minute" or "45s". The script locks sign-in for ten minutes
+ * after too many wrong passwords, so that is the fallback when it sends no
+ * time.
+ */
+export function waitText(seconds) {
+  const s = Number(seconds) > 0 ? Math.ceil(Number(seconds)) : 600;
+  if (s < 60) return `${s}s`;
+  const m = Math.ceil(s / 60);
+  return `${m} minute${m === 1 ? '' : 's'}`;
+}
+
+/**
  * Turn a callScript result into the one sentence the popup should show.
  * Exported so the tests assert on the real strings people will read.
  */
@@ -244,7 +256,7 @@ export function messageFor(result) {
     case 'slow':
       return {
         kind: 'slow',
-        text: `Too many failed attempts. Try again in ${Number(data.retryAfter) || 30}s.`,
+        text: `Too many wrong passwords. Sign-in is paused — try again in ${waitText(data.retryAfter)}.`,
       };
     case 'name':
       return { kind: 'name', text: 'Please enter your name.' };

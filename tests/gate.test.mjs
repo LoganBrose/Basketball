@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cleanName, isEnabled, sessionValid, siteMaxAge, adminMaxAge,
-  callScript, messageFor, pageName,
+  callScript, messageFor, pageName, waitText,
 } from '../assets/js/gate.js';
 import { peopleFrom, filterRows, isFailure } from '../assets/js/admin.js';
 
@@ -161,6 +161,9 @@ test('each outcome gets its own sentence', () => {
   assert.equal(slow.kind, 'slow');
   assert.match(slow.text, /30s/);
 
+  const locked = messageFor({ ok: true, data: { ok: false, reason: 'slow', retryAfter: 600 } });
+  assert.match(locked.text, /10 minutes/);
+
   const down = messageFor({ ok: false, error: 'Failed to fetch' });
   assert.equal(down.kind, 'network');
   assert.match(down.text, /Try again/);
@@ -172,8 +175,15 @@ test('an unrecognised refusal points at the deployment rather than the password'
   assert.match(m.text, /deployment/);
 });
 
-test('slow falls back to 30 seconds when the script sends no retryAfter', () => {
-  assert.match(messageFor({ ok: true, data: { ok: false, reason: 'slow' } }).text, /30s/);
+test('slow falls back to the ten-minute lockout when the script sends no retryAfter', () => {
+  assert.match(messageFor({ ok: true, data: { ok: false, reason: 'slow' } }).text, /10 minutes/);
+});
+
+test('waitText rounds up to whole minutes from a minute on', () => {
+  assert.equal(waitText(45), '45s');
+  assert.equal(waitText(60), '1 minute');
+  assert.equal(waitText(61), '2 minutes');
+  assert.equal(waitText(599), '10 minutes');
 });
 
 /* ---------------------------------------------------------------- */
@@ -438,3 +448,10 @@ test('a failed sign-everyone-out keeps the old session and says why', () => with
   assert.match(await signOutEveryone({ fetchImpl: async () => { throw new Error('offline'); } }), /Nobody was signed out/);
   assert.equal(store.get('bb.admin.v1'), admin);
 }));
+
+test('a lockout row is labelled, flagged as neither sign-in nor failure', () => {
+  const lock = { name: 'Guesser', result: 'lockout', at: '1/1/2026' };
+  assert.match(resultLabel(lock), /locked for 10 minutes/);
+  const people = peopleFrom([lock, { name: 'Guesser', result: 'failed:site', at: '1/1/2026' }]);
+  assert.deepEqual(people.map((p) => [p.name, p.signIns, p.failures]), [['Guesser', 0, 1]]);
+});

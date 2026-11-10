@@ -554,6 +554,14 @@ code {
 .note.ghost { opacity: 0.22; pointer-events: none; }
 .note.selected .note-text { fill: var(--accent); }
 
+/* ---- Play animation ---- */
+
+.anim-trail .arrow.ghost { opacity: 0.35; }
+.anim-notes .note.ghost { opacity: 1; }
+.token.anim { pointer-events: none; }
+.anim-ball { pointer-events: none; }
+#fr-play[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+
 /* ---- frames ---- */
 
 .pb-frames {

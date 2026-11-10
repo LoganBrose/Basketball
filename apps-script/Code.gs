@@ -51,10 +51,19 @@ var SIGNIN_HEADERS = ['Timestamp', 'Name', 'Page', 'User agent', 'Result'];
 /** Names are free text from a public endpoint, so they get a hard ceiling. */
 var MAX_NAME = 60;
 
-/** Failures allowed in a rolling minute before failed attempts are slowed. */
-var THROTTLE_MAX = 10;
+/**
+ * Wrong passwords allowed within a minute. The next one locks sign-in for
+ * LOCKOUT_SECONDS for EVERYONE, correct password or not.
+ *
+ * Apps Script cannot see IP addresses, so there is no telling one guesser from
+ * another: the lock has to be global. The trade-off is deliberate. Someone
+ * hammering the endpoint can stop new sign-ins for ten minutes at a time, but
+ * cannot try more than a handful of passwords in that time. People already
+ * signed in are unaffected — their tokens keep working throughout.
+ */
+var THROTTLE_MAX = 5;
 var THROTTLE_WINDOW_SECONDS = 60;
-var THROTTLE_RETRY_AFTER = 30;
+var LOCKOUT_SECONDS = 600;
 
 /* ------------------------------------------------------------------ */
 /* Entry point                                                         */
@@ -132,6 +141,11 @@ function handleSignIn(body) {
 
   if (name === '') return { ok: false, reason: 'name' };
 
+  // Before any comparison: during a lockout no password is checked at all, so
+  // a guess made now cannot succeed and is not even worth making.
+  var locked = lockedOut();
+  if (locked) return locked;
+
   var given = String(body.password || '');
 
   // Every comparison runs every time and they are combined at the end, exactly
@@ -186,6 +200,9 @@ function handleAdmin(body) {
   var page = String(body.page || 'admin').slice(0, 80);
   var ua = String(body.ua || '').slice(0, 120);
 
+  var locked = lockedOut();
+  if (locked) return locked;
+
   var adminName = cleanName(prop('ADMIN_NAME'));
   var okName = constantTimeEquals(name.toLowerCase(), adminName.toLowerCase());
   var okPassword = constantTimeEquals(String(body.password || ''), prop('ADMIN_PASSWORD'));
@@ -199,6 +216,7 @@ function handleAdmin(body) {
     token: makeToken('admin', name, adminExpiry()),
     signIns: readSignIns(),
     active: readActiveSessions(),
+    days: numberProp('SIGNIN_DAYS', 30),
   };
 }
 
@@ -213,7 +231,12 @@ function handleAdmin(body) {
 function handleSignIns(body) {
   var admin = verifyToken(body.token, 'admin');
   if (!admin.ok) return { ok: false, reason: 'auth' };
-  return { ok: true, signIns: readSignIns(), active: readActiveSessions() };
+  return {
+    ok: true,
+    signIns: readSignIns(),
+    active: readActiveSessions(),
+    days: numberProp('SIGNIN_DAYS', 30),
+  };
 }
 
 /**
@@ -468,15 +491,17 @@ function findPlayRow(sheet, id) {
  * One failure path for every wrong credential, so the response cannot be used
  * to tell a wrong name from a wrong password.
  *
- * The throttle is consulted HERE, after the comparison — never before it. A
- * correct password is answered normally even mid-slowdown, so nobody can lock
- * the team out by hammering the endpoint with bad guesses.
+ * Each failure is logged, and the one that crosses THROTTLE_MAX also writes a
+ * single "lockout" row. During the lockout itself sign-in returns before it
+ * gets here, so a flood of guesses adds nothing to the log sheet.
  */
 function failed(name, page, ua, kind) {
   log(name, page, ua, 'failed:' + kind);
 
   if (bumpFailures() > THROTTLE_MAX) {
-    return { ok: false, reason: 'slow', retryAfter: THROTTLE_RETRY_AFTER };
+    startLockout();
+    log(name, page, ua, 'lockout');
+    return { ok: false, reason: 'slow', retryAfter: LOCKOUT_SECONDS };
   }
   return { ok: false, reason: 'password' };
 }
@@ -621,15 +646,32 @@ function constantTimeEquals(a, b) {
 /* Throttle                                                            */
 /* ------------------------------------------------------------------ */
 
-/**
- * Count failures in a rolling window. Only failures ever reach this, so a
- * correct password is never delayed by someone else's guessing.
- */
+/** Count failures in a rolling window. */
 function bumpFailures() {
   var cache = CacheService.getScriptCache();
   var count = Number(cache.get('fails') || 0) + 1;
   cache.put('fails', String(count), THROTTLE_WINDOW_SECONDS);
   return count;
+}
+
+/**
+ * Lock sign-in. The value is the moment the lock ends, so the reply can say how
+ * long is left; the cache expiry is only a backstop for that. The failure count
+ * starts again from zero, so the first wrong password after a lockout does not
+ * immediately start another one.
+ */
+function startLockout() {
+  var cache = CacheService.getScriptCache();
+  cache.put('lockout', String(Date.now() + LOCKOUT_SECONDS * 1000), LOCKOUT_SECONDS);
+  cache.put('fails', '0', THROTTLE_WINDOW_SECONDS);
+}
+
+/** The refusal to send while sign-in is locked, or null when it is not. */
+function lockedOut() {
+  var until = Number(CacheService.getScriptCache().get('lockout') || 0);
+  var left = Math.ceil((until - Date.now()) / 1000);
+  if (!(left > 0)) return null;
+  return { ok: false, reason: 'slow', retryAfter: Math.min(left, LOCKOUT_SECONDS) };
 }
 
 /* ------------------------------------------------------------------ */

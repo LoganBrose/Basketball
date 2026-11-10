@@ -154,26 +154,63 @@ test('a failed admin attempt records the name that was typed', () => {
 /* Throttle                                                          */
 /* ---------------------------------------------------------------- */
 
-test('failures slow down after ten in a minute', () => {
+test('the sixth wrong password in a minute locks sign-in for ten minutes', () => {
   const { fns } = loadCodeGs();
   const reasons = [];
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 8; i++) {
     reasons.push(fns.handleSignIn({ name: 'Guesser', password: 'guess' + i }).reason);
   }
 
-  assert.equal(reasons.filter((r) => r === 'password').length, 10);
-  assert.equal(reasons[10], 'slow');
-  assert.equal(fns.handleSignIn({ name: 'Guesser', password: 'x' }).retryAfter, 30);
+  assert.deepEqual(reasons.slice(0, 5), Array(5).fill('password'));
+  assert.deepEqual(reasons.slice(5), ['slow', 'slow', 'slow']);
+  const res = fns.handleSignIn({ name: 'Guesser', password: 'x' });
+  assert.ok(res.retryAfter > 590 && res.retryAfter <= 600, `retryAfter ${res.retryAfter}`);
 });
 
-test('a correct password still works during the slowdown', () => {
-  // The whole point of a slowdown rather than a lockout: nobody can shut the
-  // team out by guessing badly at the endpoint.
-  const { fns } = loadCodeGs();
-  for (let i = 0; i < 25; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+test('during a lockout even the correct passwords are refused', () => {
+  // Otherwise the lock would not stop guessing: the right guess would still win.
+  const { fns } = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
+  for (let i = 0; i < 6; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+
+  assert.equal(fns.handleSignIn({ name: 'Coach', password: 'team-pw' }).reason, 'slow');
+  assert.equal(fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).reason, 'slow');
+  assert.equal(fns.handleSignIn({ name: 'Fan', password: 'view-pw' }).reason, 'slow');
+  assert.equal(fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).reason, 'slow');
+});
+
+test('the lockout ends after ten minutes and the count starts again', () => {
+  const { fns, cache } = loadCodeGs();
+  for (let i = 0; i < 6; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+  assert.equal(fns.handleSignIn({ name: 'Coach', password: 'team-pw' }).reason, 'slow');
+
+  // The shim's cache never expires, so wind the stored end time back instead.
+  cache.set('lockout', String(Date.now() - 1));
 
   assert.equal(fns.handleSignIn({ name: 'Coach', password: 'team-pw' }).ok, true);
-  assert.equal(fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).ok, true);
+  // One wrong password after a lockout is just a wrong password.
+  assert.equal(fns.handleSignIn({ name: 'Guesser', password: 'again' }).reason, 'password');
+});
+
+test('a lockout writes one row, and the flood after it writes none', () => {
+  const { fns, rows } = loadCodeGs();
+  for (let i = 0; i < 50; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+
+  const results = rows.map((r) => r[4]);
+  assert.equal(results.filter((r) => r === 'failed:site').length, 6);
+  assert.equal(results.filter((r) => r === 'lockout').length, 1);
+  assert.equal(rows.length, 7);
+});
+
+test('people already signed in keep working through a lockout', () => {
+  const { fns, sheets } = loadCodeGs();
+  sheets.Players = { getDataRange: () => ({ getDisplayValues: () => [['Player ID']] }) };
+  const coach = fns.handleSignIn({ name: 'Coach', password: 'team-pw' });
+  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  for (let i = 0; i < 6; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
+
+  assert.equal(fns.handleCheck({ token: coach.token }).valid, true);
+  assert.equal(fns.handleData({ token: coach.token, tabs: ['Players'] }).ok, true);
+  assert.equal(fns.handleSignIns({ token: admin.adminToken }).ok, true);
 });
 
 test('a successful sign-in never counts toward the throttle', () => {
@@ -351,15 +388,6 @@ test('the admin password under the wrong name is refused, indistinguishably', ()
   assert.deepEqual(wrongName, { ok: false, reason: 'password' });
 });
 
-test('an admin can still sign in while the slowdown is running', () => {
-  const { fns } = loadCodeGs();
-  for (let i = 0; i < 25; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
-
-  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
-  assert.equal(res.ok, true);
-  assert.equal(fns.verifyToken(res.adminToken, 'admin').ok, true);
-});
-
 test('the front door works through doPost, not just called directly', () => {
   const { fns } = loadCodeGs();
   const res = post(fns, { action: 'signin', name: 'Logan Brose', password: 'admin-pw' });
@@ -401,4 +429,18 @@ test('the log action works through doPost', () => {
   const { fns } = loadCodeGs();
   const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
   assert.equal(post(fns, { action: 'signIns', token: admin.adminToken }).ok, true);
+});
+
+/* ---------------------------------------------------------------- */
+/* Sign-in list window                                               */
+/* ---------------------------------------------------------------- */
+
+test('the sign-in list reports how many days it covers', () => {
+  const { fns } = loadCodeGs();
+  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  assert.equal(fns.handleSignIns({ token: admin.adminToken }).days, 30);
+
+  const custom = loadCodeGs({ SIGNIN_DAYS: '14' });
+  const a2 = custom.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  assert.equal(custom.fns.handleSignIns({ token: a2.adminToken }).days, 14);
 });

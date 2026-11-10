@@ -266,3 +266,72 @@ test('carryOverTokens: Horns Flare picks up where each step left off', () => {
   assert.deepEqual([byLabel(afterFlare, '1').x, byLabel(afterFlare, '1').y], [cut.to.x, cut.to.y]);
   assert.deepEqual([byLabel(afterFlare, '4').x, byLabel(afterFlare, '4').y], [screen.to.x, screen.to.y]);
 });
+
+/* tokensAt (the Play animation) ------------------------------------------ */
+
+import { tokensAt, pointAt, MOVE_SHARE } from '../assets/js/library.js';
+
+const pos = (t) => [Math.round(t.x * 1000) / 1000, Math.round(t.y * 1000) / 1000];
+
+test('tokensAt: t = 0 is the step as drawn', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10, { hasBall: true }), tok('2', 30, 10)],
+    arrows: [arrow('cut', [30, 11], [30, 25]), arrow('pass', [11, 11], [29, 24])],
+  };
+  const { tokens, flyingBalls } = tokensAt(frame, 0);
+  assert.deepEqual(tokens, frame.tokens);
+  assert.deepEqual(flyingBalls, []);
+});
+
+test('tokensAt: t = 1 is exactly where + Step would start the next step', () => {
+  const play = JSON.parse(readFileSync(new URL('./fixtures/horns-flare.json', import.meta.url)));
+  for (const frame of play.frames) {
+    const strip = (list) => list.map(({ id, ...t }) => t);
+    assert.deepEqual(strip(tokensAt(frame, 1).tokens), strip(carryOverTokens(frame)));
+  }
+});
+
+test('tokensAt: a cut on a curved arrow follows the curve, not a straight line', () => {
+  const curved = { ...arrow('cut', [10, 10], [30, 10]), ctrl: { x: 20, y: 30 } };
+  const frame = { tokens: [tok('1', 10, 10)], arrows: [curved] };
+  const at = byLabel(tokensAt(frame, 0.5).tokens, '1');
+  assert.deepEqual(pos(at), pos(pointAt(curved, 0.5)));
+  assert.ok(at.y > 15, 'bowed towards the control point');
+});
+
+test('tokensAt: players move first, then the ball flies', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10, { hasBall: true }), tok('2', 30, 10)],
+    arrows: [arrow('cut', [30, 11], [30, 25]), arrow('pass', [11, 11], [29, 24])],
+  };
+
+  const moving = tokensAt(frame, MOVE_SHARE / 2);
+  assert.equal(byLabel(moving.tokens, '1').hasBall, true, 'the ball has not left yet');
+  assert.ok(byLabel(moving.tokens, '2').y > 10 && byLabel(moving.tokens, '2').y < 25);
+  assert.deepEqual(moving.flyingBalls, []);
+
+  const passing = tokensAt(frame, (MOVE_SHARE + 1) / 2);
+  assert.deepEqual(pos(byLabel(passing.tokens, '2')), [30, 25], 'the cutter has arrived');
+  assert.equal(byLabel(passing.tokens, '1').hasBall, false);
+  assert.equal(byLabel(passing.tokens, '2').hasBall, false, 'not caught yet');
+  assert.equal(passing.flyingBalls.length, 1);
+  const [ball] = passing.flyingBalls;
+  assert.ok(ball.x > 10 && ball.x < 30 && ball.y > 10 && ball.y < 25, 'in the air between them');
+});
+
+test('tokensAt: a loose ball token flies itself rather than a second ball', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10), { id: 'b', kind: 'ball', label: '', x: 11, y: 10, hasBall: false }, tok('2', 30, 10)],
+    arrows: [arrow('pass', [11, 11], [29, 11])],
+  };
+  const mid = tokensAt(frame, 0.5);
+  assert.deepEqual(mid.flyingBalls, []);
+  const ball = mid.tokens.find((t) => t.kind === 'ball');
+  assert.ok(ball.x > 11 && ball.x < 30);
+  assert.deepEqual(pos(tokensAt(frame, 1).tokens.find((t) => t.kind === 'ball')), [30, 10]);
+});
+
+test('tokensAt: a step with no arrows stands still', () => {
+  const frame = { tokens: [tok('1', 10, 10)], arrows: [] };
+  assert.deepEqual(tokensAt(frame, 0.5).tokens, frame.tokens);
+});

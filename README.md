@@ -227,6 +227,13 @@ a player with a cut, dribble or screen arrow starts at its end, and a pass hands
 receiver. Undo if you wanted it different. The previous step shows through faded. Double-click a
 step chip to rename it.
 
+**▶ Play** animates the play from the current step to the end: players run along their arrows,
+curves included, and then the ball flies along each pass. It moves exactly as **+ Step** carries
+players over, so where the animation ends one step is where the next one starts. Press **■ Stop**, or
+tap anything else, to stop on the step as drawn. The space bar starts and stops it. Viewers get it too.
+With *reduce motion* turned on in your device settings, it shows each step in turn without the
+movement.
+
 **Court.** Half or full court per play, with High School (19'9"), College or NBA three-point lines,
 drawn to scale in feet.
 
@@ -421,8 +428,7 @@ Viewer sign-ins show up in the admin list as *Signed in (view only)*.
 ### The sign-in list only goes back 30 days
 
 `admin.html` lists the last 30 days of sign-ins. Older rows are **not deleted** from the log sheet;
-they just stop being listed. Set `SIGNIN_DAYS` to change the window (the page heading still says
-30 days).
+they just stop being listed. Set `SIGNIN_DAYS` to change the window; the page headings follow it.
 
 ### Video links on plays
 
@@ -510,9 +516,17 @@ tokens signed before the very first press.
 > **This needs the updated `Code.gs` deployed** (Manage deployments → Edit → New version). Until then
 > the button says so and nobody is signed out, and *Signed in now* doesn't appear.
 
-**Failed attempts are logged too**, with whatever name was typed. After ten failures in a minute,
-further *failed* attempts are told to wait 30 seconds — but a correct password always works, even
-mid-slowdown, so nobody can shut the team out by guessing badly at the endpoint.
+**Failed attempts are logged too**, with whatever name was typed.
+
+**Five wrong passwords within a minute lock sign-in for 10 minutes — for everyone, even with the
+correct password.** The popup says how long is left. Apps Script can't see IP addresses, so it can't
+tell one guesser from another; the lock has to cover everybody, and that is what stops someone
+trying passwords until one works. The trade-off: anyone hammering the endpoint can keep *new*
+sign-ins paused. **People already signed in are not affected** — their sign-in keeps working the
+whole time.
+
+The lock is logged as a single *Sign-in locked* row. Attempts made while it is on are refused
+without being checked or logged, so a flood of guesses cannot bloat the log sheet.
 
 A wrong admin name and a wrong admin password come back identically. There is no way to confirm the
 name without also having the password.
