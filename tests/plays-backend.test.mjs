@@ -58,40 +58,71 @@ test('one unreadable row does not take the whole playbook down', () => {
 });
 
 /* ---------------------------------------------------------------- */
-/* Writing is admin-only                                             */
+/* Writing: any coach or the admin, never a viewer                   */
 /* ---------------------------------------------------------------- */
 
-test('a site token cannot change the team playbook', () => {
-  // The shared password is shared. Everyone who knows it should not be able to
-  // rewrite what the whole team sees.
+function withViewer() {
+  const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
+  ctx.site = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
+  ctx.admin = ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  const res = ctx.fns.handleSignIn({ name: 'Pat Parent', password: 'view-pw' });
+  assert.equal(res.role, 'viewer');
+  ctx.viewer = res.token;
+  return ctx;
+}
+
+test('a coach can publish to the team playbook, and is recorded as the author', () => {
   const ctx = ctxWith();
+  const res = ctx.fns.handleSavePlay({ token: ctx.site, play: play('x') });
+  assert.equal(res.ok, true);
+  assert.equal(res.updatedBy, 'Casey Jones');
+
+  const plays = ctx.fns.handlePlays({ token: ctx.site }).plays;
+  assert.deepEqual(plays.map((p) => p.id), ['x']);
+  assert.equal(plays[0].updatedBy, 'Casey Jones');
+});
+
+test('a coach can remove from the team playbook', () => {
+  const ctx = ctxWith();
+  ctx.fns.handleSavePlay({ token: ctx.admin, play: play('a') });
+  assert.equal(ctx.fns.handleDeletePlay({ token: ctx.site, id: 'a' }).ok, true);
+  assert.equal(ctx.fns.handlePlays({ token: ctx.site }).plays.length, 0);
+});
+
+test('a view-only token cannot change the team playbook', () => {
+  const ctx = withViewer();
   assert.deepEqual(
-    ctx.fns.handleSavePlay({ token: ctx.site, play: play('x') }),
+    ctx.fns.handleSavePlay({ token: ctx.viewer, play: play('x') }),
     { ok: false, reason: 'auth' },
   );
   assert.deepEqual(
-    ctx.fns.handleDeletePlay({ token: ctx.site, id: 'x' }),
+    ctx.fns.handleDeletePlay({ token: ctx.viewer, id: 'x' }),
     { ok: false, reason: 'auth' },
   );
 });
 
-test('a refused save changes nothing at all', () => {
-  const ctx = ctxWith();
+test('a refused save or delete changes nothing at all', () => {
+  const ctx = withViewer();
   ctx.fns.handleSavePlay({ token: ctx.admin, play: play('a', { name: 'Original' }) });
-  ctx.fns.handleSavePlay({ token: ctx.site, play: play('a', { name: 'Vandalised' }) });
+  ctx.fns.handleSavePlay({ token: ctx.viewer, play: play('a', { name: 'Vandalised' }) });
+  ctx.fns.handleDeletePlay({ token: ctx.viewer, id: 'a' });
+  ctx.fns.handleSavePlay({ token: 'garbage', play: play('a', { name: 'Vandalised' }) });
 
   const plays = ctx.fns.handlePlays({ token: ctx.admin }).plays;
   assert.equal(plays.length, 1);
   assert.equal(plays[0].play.name, 'Original');
 });
 
-test('an expired admin token cannot save', () => {
+test('an expired coach or admin token cannot save', () => {
   const ctx = ctxWith();
-  const stale = ctx.fns.makeToken('admin', 'Logan Brose', Date.now() - 1);
-  assert.deepEqual(
-    ctx.fns.handleSavePlay({ token: stale, play: play('x') }),
-    { ok: false, reason: 'auth' },
-  );
+  for (const role of ['site', 'admin']) {
+    const stale = ctx.fns.makeToken(role, 'Logan Brose', Date.now() - 1);
+    assert.deepEqual(
+      ctx.fns.handleSavePlay({ token: stale, play: play('x') }),
+      { ok: false, reason: 'auth' },
+      role,
+    );
+  }
 });
 
 /* ---------------------------------------------------------------- */

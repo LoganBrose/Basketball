@@ -6,17 +6,16 @@
  * away. Here the script hands nothing over without a token it signed.
  *
  * Reading takes a site token, so the playbook works on a phone with the team
- * password. Writing takes the admin password — the shared password is shared,
- * and the team playbook is not something everyone who knows it should be able
- * to rewrite. A coach can still save as many plays as they like on their own
- * device; that never leaves the browser.
+ * password. Writing does too: any coach signed in with the team password can
+ * publish to or remove from the team playbook. A view-only sign-in can only
+ * read, and the script refuses a viewer token for anything else.
  *
  * While `plays/` still exists this module also reads it, so nothing is lost
  * before the migration has run.
  */
 
 import { CONFIG } from './config.js';
-import { callScript, isEnabled, readSession, readAdminSession, sessionValid, siteMaxAge, adminMaxAge } from './gate.js';
+import { callScript, isEnabled, isViewer, readSession, readAdminSession, sessionValid, siteMaxAge, adminMaxAge } from './gate.js';
 import { normalizePlay, loadTeamPlaybook } from './library.js';
 import { DEFAULT_PLAYBOOK } from './playbooks.js';
 
@@ -36,8 +35,18 @@ const adminToken = () => {
   return sessionValid(admin, adminMaxAge(CONFIG.gate || {})) ? admin.token : '';
 };
 
-/** Only an admin may change the team playbook. */
-export const canPublish = () => !usingScript() || Boolean(adminToken());
+/**
+ * The token that may change the team playbook: the admin's if there is one,
+ * otherwise the coach's. A viewer's session holds a viewer token, which the
+ * script would refuse, so a viewer gets none.
+ */
+const writeToken = () => (isViewer() ? '' : siteToken());
+
+/** Any signed-in coach (or the admin) may change the team playbook. */
+export const canPublish = () => !usingScript() || Boolean(writeToken());
+
+/** Moving `plays/` into the sheet is a one-time job, kept for the admin. */
+export const canMigrate = () => !usingScript() || Boolean(adminToken());
 
 /** "zone-offense" -> "Zone Offense", for a playbook nobody named. */
 export function titleFromSlug(slug) {
@@ -129,7 +138,7 @@ export function saveMessage(result) {
 
   switch (data.reason) {
     case 'auth':
-      return 'Publishing needs the admin password.';
+      return 'Your sign-in has expired. Sign in again to publish.';
     case 'too_big':
       return 'This play is too large to save to the team playbook. Split it into two plays or remove frames.';
     default:
@@ -142,8 +151,8 @@ export function saveMessage(result) {
  * @returns {Promise<{ok: boolean, message: string}>}
  */
 export async function saveTeamPlay(play) {
-  const token = adminToken();
-  if (!token) return { ok: false, message: 'Publishing needs the admin password.' };
+  const token = writeToken();
+  if (!token) return { ok: false, message: 'Sign in to publish to the team playbook.' };
 
   const result = await callScript(CONFIG.gate.url, { action: 'savePlay', token, play });
   const message = saveMessage(result);
@@ -152,8 +161,8 @@ export async function saveTeamPlay(play) {
 
 /** Remove one play from the team playbook. */
 export async function deleteTeamPlay(id) {
-  const token = adminToken();
-  if (!token) return { ok: false, message: 'Removing needs the admin password.' };
+  const token = writeToken();
+  if (!token) return { ok: false, message: 'Sign in to remove from the team playbook.' };
 
   const result = await callScript(CONFIG.gate.url, { action: 'deletePlay', token, id });
   if (!result.ok) return { ok: false, message: "Couldn't reach the team playbook. Try again." };
@@ -161,7 +170,7 @@ export async function deleteTeamPlay(id) {
     return {
       ok: false,
       message: result.data?.reason === 'auth'
-        ? 'Removing needs the admin password.'
+        ? 'Your sign-in has expired. Sign in again to remove.'
         : "Couldn't remove this play.",
     };
   }

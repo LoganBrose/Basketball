@@ -288,8 +288,8 @@ function playsSheet() {
  * Every play, for any signed-in coach or viewer.
  *
  * Reading takes a site (or viewer) token so the playbook works on a phone with
- * the team password. Writing does not — see handleSavePlay. This is the only
- * action a viewer token is good for.
+ * the team password. Writing takes a site or admin token — see handleSavePlay.
+ * This is the only action a viewer token is good for.
  */
 function handlePlays(body) {
   var site = verifyToken(body.token, 'site');
@@ -326,16 +326,23 @@ function handlePlays(body) {
 }
 
 /**
- * Add or replace one play. Admin only.
- *
- * Reading the playbook is a site token, but writing it is not: the shared
- * password is shared, and the team playbook is not something everyone who
- * knows it should be able to rewrite. A coach can still save as many plays as
- * they like on their own device.
+ * Who may change the team playbook: any coach (a site token) or the admin.
+ * A view-only token is refused — viewers read the playbook and nothing else.
+ */
+function playWriter(token) {
+  var admin = verifyToken(token, 'admin');
+  if (admin.ok) return admin;
+  return verifyToken(token, 'site');
+}
+
+/**
+ * Add or replace one play. Any signed-in coach or the admin; never a viewer.
+ * The name on the token is recorded as `updatedBy`, so the sheet shows who
+ * published each play.
  */
 function handleSavePlay(body) {
-  var admin = verifyToken(body.token, 'admin');
-  if (!admin.ok) return { ok: false, reason: 'auth' };
+  var writer = playWriter(body.token);
+  if (!writer.ok) return { ok: false, reason: 'auth' };
 
   var play = body.play;
   if (!play || !play.id) return { ok: false, reason: 'bad_request' };
@@ -355,7 +362,7 @@ function handleSavePlay(body) {
       String(play.playbook || 'general'),
       String(play.name || 'Untitled play'),
       new Date(),
-      admin.name,
+      writer.name,
       text,
     ];
 
@@ -363,16 +370,15 @@ function handleSavePlay(body) {
     if (rowIndex === -1) sheet.appendRow(row);
     else sheet.getRange(rowIndex, 1, 1, PLAYS_HEADERS.length).setValues([row]);
 
-    return { ok: true, id: play.id, updatedBy: admin.name };
+    return { ok: true, id: play.id, updatedBy: writer.name };
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Remove one play from the team playbook. Admin only. */
+/** Remove one play from the team playbook. Any signed-in coach or the admin. */
 function handleDeletePlay(body) {
-  var admin = verifyToken(body.token, 'admin');
-  if (!admin.ok) return { ok: false, reason: 'auth' };
+  if (!playWriter(body.token).ok) return { ok: false, reason: 'auth' };
   if (!body.id) return { ok: false, reason: 'bad_request' };
 
   var lock = LockService.getScriptLock();

@@ -246,7 +246,8 @@ entry, because a play is matched by its id.
 **Remove from team playbook** takes it back off, after a confirm. Your copy on the device is kept, so
 a misclick costs nothing.
 
-Both of those need the **admin password**. Without it the button reads **Admin only**.
+Any coach signed in with the **site password** can do both, as can the admin. A view-only sign-in
+cannot — it never sees the buttons. The sheet's `Updated By` column records who published each play.
 
 A play that minifies to more than 45,000 characters is refused — that is the limit of a single sheet
 cell, and writing past it would corrupt the play rather than fail honestly. Split it into two plays
@@ -323,7 +324,7 @@ did not check itself.
 | The pages | the popup | No — bypassable |
 | Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
 | Player names | the site password, checked in Apps Script | **Yes**, same |
-| Team playbook | the site password to read, the **admin password** to change | **Yes**, once `plays/` is deleted |
+| Team playbook | the site password to read **and** to change; the viewer password to read only | **Yes**, once `plays/` is deleted |
 | Plays still in `plays/` | nothing | **No** — files in a public repo, until they are removed |
 
 **The plays are in both places right now.** The sheet is the live one; `plays/` is still there as a
@@ -402,7 +403,8 @@ Changing `ADMIN_NAME` invalidates outstanding admin sessions on its own.
 |---|---|---|---|
 | **Look through** the team playbook, step through plays, open video links | yes | yes | yes |
 | Draw and edit plays on this device, the lineup names | **no** | yes | yes |
-| **Publish to or remove from** the team playbook | **no** | **no** | **yes** |
+| **Publish to or remove from** the team playbook | **no** | **yes** | **yes** |
+| Move plays from `plays/` into the sheet (one-time) | **no** | **no** | **yes** |
 | **Stats page, box scores, season tiles** | **no** | **not shown to exist** | **yes** |
 | The sign-in log at `admin.html` | **no** | **not shown to exist** | yes |
 
@@ -452,8 +454,8 @@ Without an admin session the site is a playbook site. Not a locked-down one — 
   source` on a coach's browser shows a playbook site because that is all there is.
 - **`index.html`, `stats.html` and `admin.html` redirect to the playbook**, from a script at the top
   of `<head>` — before the title commits and before the markup parses.
-- **Nothing says "admin".** No lock icons, no "needs the admin password", no disabled Publish button
-  labelled "Admin only". Publish is simply not rendered.
+- **Nothing says "admin".** No lock icons, no "needs the admin password". A coach publishes to the
+  team playbook with the team password, so Publish is there for them too.
 - **When the admin session expires** after 24 hours, the site drops back to this view without
   comment. The team sign-in keeps working for its full 30 days.
 
@@ -467,11 +469,10 @@ itself, the head script has no way to know yet whether sign-in is even configure
 happens a moment later in JavaScript instead. The page stays blank throughout and no stats are ever
 requested. Every visit after that is caught in the `<head>`.
 
-Reading the team playbook takes only the site password, because it has to work on a phone with the
-password everyone has. **Changing it takes the admin password** — the shared password is shared, and
-the team playbook is not something everyone who knows it should be able to rewrite. A coach without
-it still saves as many plays as they like on their own device; the Publish button simply reads
-**Admin only**.
+Reading **and changing** the team playbook take only the site password, so any coach can publish
+or remove a play from a phone with the password everyone has. Anyone who knows the team password can
+therefore rewrite the team playbook — if that ever becomes a problem, change `SITE_PASSWORD`. A
+view-only sign-in can still only read: the script refuses a `viewer` token for saving and removing.
 
 A site sign-in lasts 30 days; an admin session lasts 24 hours, and both limits are enforced inside
 the token's signature rather than by the browser. **Signing out of admin clears the numbers from the

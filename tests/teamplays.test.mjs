@@ -128,7 +128,7 @@ test('each way a save can fail gets its own sentence', () => {
 
   assert.match(
     saveMessage({ ok: true, data: { ok: false, reason: 'auth' } }),
-    /admin password/,
+    /Sign in again/,
   );
 
   const tooBig = saveMessage({ ok: true, data: { ok: false, reason: 'too_big' } });
@@ -141,4 +141,43 @@ test('each way a save can fail gets its own sentence', () => {
 
 test('an unexpected refusal still says something true', () => {
   assert.match(saveMessage({ ok: true, data: { ok: false, reason: 'weird' } }), /Couldn't save/);
+});
+
+/* ---------------------------------------------------------------- */
+/* Who may change the team playbook                                  */
+/* ---------------------------------------------------------------- */
+
+test('a coach and the admin can publish; a viewer and a signed-out browser cannot', async () => {
+  const { canPublish, canMigrate } = await import('../assets/js/teamplays.js');
+  const now = Date.now();
+  const coach = { name: 'Casey Jones', token: 'tok', role: 'site', at: now };
+  const viewer = { name: 'Pat', token: 'tok', role: 'viewer', at: now, until: now + 60_000 };
+  const admin = { name: 'Logan Brose', token: 'tok', at: now, until: now + 60_000 };
+
+  const cases = [
+    // [site session, admin session, canPublish, canMigrate, why]
+    [coach, null, true, false, 'a coach publishes, but the migration stays with the admin'],
+    [viewer, null, false, false, 'a viewer only reads'],
+    [coach, admin, true, true, 'the admin can do both'],
+    [null, null, false, false, 'nobody signed in'],
+  ];
+
+  const previous = globalThis.localStorage;
+  try {
+    for (const [site, adm, publish, migrate, why] of cases) {
+      const store = new Map();
+      globalThis.localStorage = {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+      };
+      if (site) store.set('bb.gate.v1', JSON.stringify(site));
+      if (adm) store.set('bb.admin.v1', JSON.stringify(adm));
+      assert.equal(canPublish(), publish, `canPublish: ${why}`);
+      assert.equal(canMigrate(), migrate, `canMigrate: ${why}`);
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  }
 });

@@ -18,7 +18,7 @@ import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
 import { isEnabled, isViewer, readSession, sessionValid, siteMaxAge } from './gate.js';
 import {
-  usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
+  usingScript, canPublish, canMigrate, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
   playsToMigrate, readFilePlays, migrateFilePlays,
 } from './teamplays.js';
 import { shortName } from './model.js';
@@ -1048,9 +1048,9 @@ function playRow(play, readOnly) {
     });
     actions.append(b);
 
-    // Removing from the team playbook is admin-only, and asks first: it changes
-    // what the whole team sees.
-    if (usingScript() && canPublish()) {
+    // Any coach may remove from the team playbook (a viewer may not), and it
+    // asks first: it changes what the whole team sees.
+    if (usingScript() && canPublish() && !S.viewer) {
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'play-action danger';
@@ -1131,7 +1131,7 @@ async function refreshMigration() {
   host.hidden = true;
   host.replaceChildren();
 
-  if (!usingScript() || !canPublish()) return;
+  if (!usingScript() || !canMigrate()) return;
 
   const filePlays = await readFilePlays();
   const pending = playsToMigrate(filePlays, S.team);
@@ -1430,9 +1430,8 @@ function refreshPublish() {
 /**
  * Publish straight into the sheet.
  *
- * A non-admin sees the button disabled and labelled "Admin only" rather than
- * hidden — knowing the team playbook exists and needs a second password is more
- * use than a feature that silently isn't there.
+ * Any coach signed in with the team password (or the admin) can publish. A
+ * view-only sign-in never sees the button.
  */
 function refreshPublishToSheet(link, note) {
   link.removeAttribute('href');
@@ -1440,10 +1439,9 @@ function refreshPublishToSheet(link, note) {
 
   const published = S.team.some((t) => t.id === S.play.id);
 
-  // Not disabled with a label — removed. "Admin only" would announce that an
-  // admin exists and that publishing is a thing this site does. A coach sees a
-  // playbook that saves to their device, and nothing else.
-  if (!canPublish()) {
+  // Not disabled with a label — removed. A viewer sees a playbook to read, and
+  // nothing else.
+  if (!canPublish() || S.viewer) {
     link.hidden = true;
     note.hidden = true;
     return;
@@ -1460,7 +1458,7 @@ function refreshPublishToSheet(link, note) {
 async function publishToSheet() {
   const link = $('#p-publish');
   const note = $('#publish-note');
-  if (!canPublish()) return;
+  if (!canPublish() || S.viewer) return;
 
   const label = link.textContent;
   link.classList.add('disabled');
