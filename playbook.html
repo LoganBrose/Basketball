@@ -38,6 +38,11 @@ window.__gateFailsafe = setTimeout(function () {
   <div class="pb-layout">
     <!-- ---------------- court column ---------------- -->
     <div class="pb-main">
+      <!-- View-only sign-in: the play's name and video, in place of the form. -->
+      <div class="card pb-viewbox" id="pb-viewbox" hidden>
+        <h2 class="pb-viewbox-name" id="vb-name"></h2>
+        <a class="btn btn-primary" id="vb-video" href="#" target="_blank" rel="noopener" hidden>▶ Watch video</a>
+      </div>
       <div class="card pb-card">
         <div class="pb-tools" role="toolbar" aria-label="Drawing tools">
           <div class="segmented" role="group" aria-label="Tool">

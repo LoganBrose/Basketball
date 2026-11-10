@@ -632,12 +632,16 @@ input[type='text'], textarea {
 .viewer #p-publish,
 .viewer #publish-note,
 .viewer .pb-edit-only,
+.viewer [data-collapse="play"],
 .viewer main > .lede,
 .viewer [data-collapse="device"] { display: none !important; }
 .viewer #court { cursor: default; }
-.viewer .pb-side input[readonly],
-.viewer .pb-side textarea[readonly],
-.viewer .pb-side select:disabled { background: transparent; opacity: 1; }
+.pb-viewbox {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; padding: 12px 14px; margin-bottom: 12px;
+}
+.pb-viewbox[hidden] { display: none; }
+.pb-viewbox-name { margin: 0; font-size: 1.25rem; }
 
 .play-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
 
@@ -664,6 +668,10 @@ input[type='text'], textarea {
 
 @media (max-width: 900px) {
   .pb-layout { grid-template-columns: 1fr; }
+  /* A viewer picks from the list first, so it comes before the court, kept
+     short so the court is never far below it. */
+  .viewer .pb-side { order: -1; }
+  .viewer #team-list { max-height: 40vh; overflow-y: auto; }
   #court { max-height: none; }
 }
 
