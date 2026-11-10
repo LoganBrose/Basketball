@@ -788,6 +788,7 @@ function fillForm() {
   $('#p-notes').value = S.play.notes;
   $('#p-video').value = S.play.youtube || '';
   renderVideoLink();
+  renderViewBox();
   $('#p-court').value = S.play.courtType;
   $('#p-preset').value = S.play.preset;
 }
@@ -800,6 +801,15 @@ function renderVideoLink() {
   row.hidden = url === '';
   link.href = url || '#';
   link.title = url;
+}
+
+/** The viewer's small play box: the name, and the video when there is one. */
+function renderViewBox() {
+  $('#vb-name').textContent = S.play.name || '';
+  const url = safeVideoUrl(S.play.youtube);
+  const link = $('#vb-video');
+  link.hidden = url === '';
+  link.href = url || '#';
 }
 
 function bindForm() {
@@ -941,6 +951,10 @@ function playRow(play, readOnly) {
       // Just look at it. Nothing is copied into this browser.
       loadPlay(structuredClone(play));
       renderTeamList();
+      // On a phone the list sits above the court, so take them to the play.
+      if (globalThis.matchMedia?.('(max-width: 900px)').matches) {
+        $('#pb-viewbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       return;
     }
     if (readOnly) {
@@ -1746,6 +1760,7 @@ function enterViewerMode() {
   document.documentElement.classList.add('viewer');
   const heading = document.querySelector('main > h1');
   if (heading) heading.textContent = 'Team Playbook';
+  $('#pb-viewbox').hidden = false;
 
   clearTimeout(S.saveTimer);
   S.undo.length = 0;
