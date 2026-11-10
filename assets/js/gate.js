@@ -29,6 +29,8 @@ export const ADMIN_KEY = 'bb.admin.v1';
 
 const MAX_NAME = 60;
 const DAY = 24 * 60 * 60 * 1000;
+/** Used only if the server didn't say when a viewer sign-in ends. */
+const VIEWER_FALLBACK = DAY;
 
 /* ------------------------------------------------------------------ */
 /* Pure helpers                                                        */
@@ -150,6 +152,9 @@ export function sessionValid(session, maxAgeMs, now = Date.now()) {
   if (!session || typeof session.token !== 'string' || session.token === '') return false;
   if (typeof session.at !== 'number' || !isFinite(session.at)) return false;
   if (session.at > now) return false;              // a clock moved backwards
+  // A session that knows its own end (a viewer's, an admin's) stops there,
+  // even inside the general limit.
+  if (typeof session.until === 'number' && session.until <= now) return false;
   return now - session.at < maxAgeMs;
 }
 
@@ -433,11 +438,16 @@ function buildOverlay(gate, onDone) {
 
     if (message.kind === 'ok') {
       const signedInAs = result.data.name || name;
+      const at = Date.now();
+      const viewer = result.data.role === 'viewer';
       writeSession({
         name: signedInAs,
         token: result.data.token,
-        role: result.data.role === 'viewer' ? 'viewer' : 'site',
-        at: Date.now(),
+        role: viewer ? 'viewer' : 'site',
+        at,
+        // A viewer sign-in lasts a day, not the team's 30 days. The server's
+        // own expiry is used when it sends one, so the two never disagree.
+        ...(viewer ? { until: Number(result.data.expiresAt) || at + VIEWER_FALLBACK } : {}),
       });
 
       // The admin password at the front door signs you straight in as admin.

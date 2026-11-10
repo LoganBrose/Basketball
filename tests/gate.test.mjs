@@ -346,3 +346,17 @@ test('only a valid session stamped viewer, with no admin session, is a viewer', 
     });
   }
 });
+
+test('a session past its own `until` is over, even inside the general limit', async () => {
+  const now = 1_000_000_000_000;
+  assert.equal(sessionValid({ token: 'tok', at: now - HOUR, until: now - 1 }, 30 * DAY, now), false);
+  assert.equal(sessionValid({ token: 'tok', at: now - HOUR, until: now + HOUR }, 30 * DAY, now), true);
+  assert.equal(sessionValid({ token: 'tok', at: now - HOUR }, 30 * DAY, now), true, 'no until: as before');
+
+  const gateOn = { url: 'https://script.google.com/macros/s/x/exec', days: 30 };
+  await withStoredAdmin(undefined, async (_has, store) => {
+    store.set('bb.gate.v1', JSON.stringify({ name: 'P', token: 'tok', role: 'viewer', at: Date.now() - 25 * HOUR, until: Date.now() - HOUR }));
+    const { isViewer } = await import('../assets/js/gate.js');
+    assert.equal(isViewer(gateOn), false, 'an expired viewer is signed out');
+  });
+});

@@ -361,7 +361,8 @@ Optional:
 | Property | Value |
 |---|---|
 | `VIEWER_PASSWORD` | a **view-only** password — the team playbook and nothing else (see below). Leave it unset and there is no viewer login. |
-| `SITE_DAYS` | how long a team or viewer sign-in lasts, in days (default 30) |
+| `SITE_DAYS` | how long a team sign-in lasts, in days (default 30) |
+| `VIEWER_HOURS` | how long a view-only sign-in lasts, in hours (default 24) |
 | `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
 | `SIGNIN_DAYS` | how many days back the admin sign-in list goes (default 30) |
 
@@ -416,6 +417,9 @@ and every edit button are gone, and the play's fields can't be typed in.
 The hiding is done by the page, but the limit is real: the script gives a viewer a `viewer` token,
 and the only thing that token can do is read the team playbook. It cannot read the roster or stats,
 and it cannot save or delete anything.
+
+A view-only sign-in lasts **1 day**, after which the sign-in popup appears again. Set
+`VIEWER_HOURS` to change that.
 
 Viewer sign-ins show up in the admin list as *Signed in (view only)*.
 

@@ -19,7 +19,8 @@
  *
  *   VIEWER_PASSWORD a view-only login: the team playbook and nothing else.
  *                   Leave it unset and there is no viewer login at all.
- *   SITE_DAYS       how long a team or viewer sign-in lasts (default 30)
+ *   SITE_DAYS       how long a team sign-in lasts, in days   (default 30)
+ *   VIEWER_HOURS    how long a viewer sign-in lasts, in hours (default 24)
  *   ADMIN_HOURS     how long an admin session lasts         (default 24)
  *   SIGNIN_DAYS     how far back the admin sign-in list goes (default 30)
  *
@@ -145,7 +146,12 @@ function handleSignIn(body) {
 
   if (!okSite && !okAdmin) {
     log(name, page, ua, 'viewer');
-    return { ok: true, name: name, role: 'viewer', token: makeToken('viewer', name, siteExpiry()) };
+    var viewerUntil = viewerExpiry();
+    return {
+      ok: true, name: name, role: 'viewer',
+      token: makeToken('viewer', name, viewerUntil),
+      expiresAt: viewerUntil,   // so the browser asks again when the token stops working
+    };
   }
 
   log(name, page, ua, okAdmin ? 'admin' : 'signin');
@@ -501,6 +507,10 @@ function unb64(text) {
 
 function siteExpiry() {
   return Date.now() + numberProp('SITE_DAYS', 30) * 24 * 60 * 60 * 1000;
+}
+
+function viewerExpiry() {
+  return Date.now() + numberProp('VIEWER_HOURS', 24) * 60 * 60 * 1000;
 }
 
 function adminExpiry() {
