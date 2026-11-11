@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadCodeGs } from './helpers/apps-script.mjs';
-import { safeVideoUrl, normalizePlay, newPlay, searchPlays } from '../assets/js/library.js';
+import { safeVideoUrl, youtubeId, youtubeEmbed, normalizePlay, newPlay, searchPlays } from '../assets/js/library.js';
 import { resultLabel } from '../assets/js/admin.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -116,6 +116,40 @@ test('video links keep http(s), gain a missing scheme, and refuse anything else'
   assert.equal(safeVideoUrl('just some words'), '');
   assert.equal(safeVideoUrl(''), '');
   assert.equal(safeVideoUrl(null), '');
+});
+
+test('every common form of YouTube link yields its video ID', () => {
+  const id = 'dQw4w9WgXcQ';
+  for (const link of [
+    `https://www.youtube.com/watch?v=${id}`,
+    `https://youtube.com/watch?v=${id}&list=PL123`,
+    `https://m.youtube.com/watch?v=${id}`,
+    `https://music.youtube.com/watch?v=${id}`,
+    `https://youtu.be/${id}`,
+    `youtu.be/${id}?si=abc`,
+    `https://www.youtube.com/shorts/${id}`,
+    `https://www.youtube.com/embed/${id}`,
+    `https://www.youtube.com/live/${id}`,
+    `https://www.youtube-nocookie.com/embed/${id}`,
+  ]) assert.equal(youtubeId(link), id, link);
+});
+
+test('anything that is not a YouTube video has no ID', () => {
+  assert.equal(youtubeId('https://vimeo.com/123456789'), '');
+  assert.equal(youtubeId('https://www.youtube.com/'), '');
+  assert.equal(youtubeId('https://www.youtube.com/watch?v=short'), '');
+  assert.equal(youtubeId('https://www.youtube.com/watch?v=dQw4w9WgXcQ"><script>'), '');
+  assert.equal(youtubeId('https://notyoutube.com/watch?v=dQw4w9WgXcQ'), '');
+  assert.equal(youtubeId('javascript:alert(1)'), '');
+  assert.equal(youtubeId(null), '');
+});
+
+test('a YouTube link plays from the privacy-enhanced embed, keeping its start time', () => {
+  const base = 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1&autoplay=1';
+  assert.equal(youtubeEmbed('https://youtu.be/dQw4w9WgXcQ'), base);
+  assert.equal(youtubeEmbed('https://youtu.be/dQw4w9WgXcQ?t=90'), `${base}&start=90`);
+  assert.equal(youtubeEmbed('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s'), `${base}&start=90`);
+  assert.equal(youtubeEmbed('https://vimeo.com/123456789'), '');
 });
 
 test('a play keeps its video link through normalising, and drops a dangerous one', () => {

@@ -12,7 +12,7 @@ import {
 import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
-  exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl,
+  exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl, youtubeEmbed,
   pointAt, planStep, tokensAt,
 } from './library.js';
 import { CONFIG } from './config.js';
@@ -878,20 +878,61 @@ function fillForm() {
 /** "▶ Watch video", shown only when the play has a usable link. */
 function renderVideoLink() {
   const url = safeVideoUrl(S.play.youtube);
-  const row = $('#p-video-row');
-  const link = $('#p-video-open');
-  row.hidden = url === '';
-  link.href = url || '#';
-  link.title = url;
+  $('#p-video-row').hidden = url === '';
 }
 
 /** The viewer's small play box: the name, and the video when there is one. */
 function renderViewBox() {
   $('#vb-name').textContent = S.play.name || '';
-  const url = safeVideoUrl(S.play.youtube);
-  const link = $('#vb-video');
-  link.hidden = url === '';
-  link.href = url || '#';
+  $('#vb-video').hidden = safeVideoUrl(S.play.youtube) === '';
+}
+
+/* ------------------------------------------------------------------ */
+/* Video player                                                        */
+/* ------------------------------------------------------------------ */
+
+let videoOpener = null;
+
+/**
+ * Play the current play's video. A YouTube link plays in an overlay on this
+ * page, so the watch link is never shown; anything else opens in a new tab.
+ */
+function openVideo(e) {
+  const embed = youtubeEmbed(S.play.youtube);
+  if (!embed) {
+    const url = safeVideoUrl(S.play.youtube);
+    if (url) window.open(url, '_blank', 'noopener');
+    return;
+  }
+  videoOpener = e && e.currentTarget;
+  const frame = document.createElement('iframe');
+  frame.src = embed;
+  frame.title = S.play.name ? `Video: ${S.play.name}` : 'Play video';
+  frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+  frame.allowFullscreen = true;
+  frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  $('#video-frame').replaceChildren(frame);
+  $('#video-overlay').hidden = false;
+  $('#video-close').focus();
+}
+
+/** Removing the iframe is what stops the video playing. */
+function closeVideo() {
+  const overlay = $('#video-overlay');
+  if (overlay.hidden) return;
+  overlay.hidden = true;
+  $('#video-frame').replaceChildren();
+  if (videoOpener) videoOpener.focus();
+  videoOpener = null;
+}
+
+function bindVideo() {
+  $('#vb-video').addEventListener('click', openVideo);
+  $('#p-video-open').addEventListener('click', openVideo);
+  $('#video-close').addEventListener('click', closeVideo);
+  $('#video-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeVideo();
+  });
 }
 
 function bindForm() {
@@ -1704,6 +1745,11 @@ function bind() {
   });
 
   document.addEventListener('keydown', (e) => {
+    // The video overlay takes over the keyboard while it is open.
+    if (!$('#video-overlay').hidden) {
+      if (e.key === 'Escape') { e.preventDefault(); closeVideo(); }
+      return;
+    }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
     if (typing) return;
 
@@ -1758,6 +1804,7 @@ function bind() {
 function init() {
   readPlaybookParam();
   bindForm();
+  bindVideo();
   bind();
   bindCollapsibles();
 

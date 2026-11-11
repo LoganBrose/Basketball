@@ -376,6 +376,53 @@ export function safeVideoUrl(raw) {
   }
 }
 
+const YT_ID = /^[A-Za-z0-9_-]{11}$/;
+const YT_HOSTS = new Set([
+  'youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com',
+  'youtube-nocookie.com', 'www.youtube-nocookie.com', 'youtu.be', 'www.youtu.be',
+]);
+
+/** "90", "1m30s", "1h2m3s" → seconds, or 0. */
+function youtubeStart(raw) {
+  const text = String(raw || '').trim();
+  if (/^\d+s?$/.test(text)) return parseInt(text, 10);
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(text);
+  if (!m || text === '') return 0;
+  return (Number(m[1] || 0) * 3600) + (Number(m[2] || 0) * 60) + Number(m[3] || 0);
+}
+
+/**
+ * The 11-character video ID of a YouTube link, or ''.
+ *
+ * Accepts watch?v=, youtu.be/, /shorts/, /embed/, /live/ and /v/ forms.
+ */
+export function youtubeId(raw) {
+  const safe = safeVideoUrl(raw);
+  if (!safe) return '';
+  const url = new URL(safe);
+  if (!YT_HOSTS.has(url.hostname.toLowerCase())) return '';
+  const parts = url.pathname.split('/').filter(Boolean);
+  let id = '';
+  if (url.hostname.toLowerCase().endsWith('youtu.be')) id = parts[0] || '';
+  else if (parts[0] === 'watch') id = url.searchParams.get('v') || '';
+  else if (['shorts', 'embed', 'live', 'v'].includes(parts[0])) id = parts[1] || '';
+  return YT_ID.test(id) ? id : '';
+}
+
+/**
+ * The privacy-enhanced embed address for a YouTube link, or '' when the link
+ * isn't YouTube. Plays in the page so viewers never see the watch link.
+ */
+export function youtubeEmbed(raw) {
+  const id = youtubeId(raw);
+  if (!id) return '';
+  const url = new URL(safeVideoUrl(raw));
+  const start = youtubeStart(url.searchParams.get('t') || url.searchParams.get('start'));
+  const params = new URLSearchParams({ rel: '0', modestbranding: '1', playsinline: '1', autoplay: '1' });
+  if (start > 0) params.set('start', String(start));
+  return `https://www.youtube-nocookie.com/embed/${id}?${params}`;
+}
+
 /** Fill in anything an older or hand-edited file is missing. */
 export function normalizePlay(raw) {
   const frames = (raw.frames || []).map((f, i) => ({
