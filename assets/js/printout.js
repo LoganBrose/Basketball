@@ -81,13 +81,9 @@ export function playSection(play, draw, { startOnNewPage = false } = {}) {
     section.append(notes);
   }
 
-  const video = safeVideoUrl(play.youtube);
-  if (video) {
-    const p = el('p', 'print-video', 'Video: ');
-    const a = el('a', null, video);
-    a.href = video;
-    p.append(a);
-    section.append(p);
+  // The link itself is left off the page: the video plays in the online playbook.
+  if (safeVideoUrl(play.youtube)) {
+    section.append(el('p', 'print-video', 'Video: watch it in the online playbook.'));
   }
 
   return section;

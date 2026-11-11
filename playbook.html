@@ -41,7 +41,7 @@ window.__gateFailsafe = setTimeout(function () {
       <!-- View-only sign-in: the play's name and video, in place of the form. -->
       <div class="card pb-viewbox" id="pb-viewbox" hidden>
         <h2 class="pb-viewbox-name" id="vb-name"></h2>
-        <a class="btn btn-primary" id="vb-video" href="#" target="_blank" rel="noopener" hidden>▶ Watch video</a>
+        <button type="button" class="btn btn-primary" id="vb-video" hidden>▶ Watch video</button>
       </div>
       <div class="card pb-card">
         <div class="pb-tools" role="toolbar" aria-label="Drawing tools">
@@ -139,7 +139,7 @@ window.__gateFailsafe = setTimeout(function () {
           <input type="url" id="p-video" placeholder="https://youtube.com/watch?v=…" inputmode="url" autocomplete="off">
         </div>
         <p class="pb-video" id="p-video-row" hidden>
-          <a class="btn" id="p-video-open" href="#" target="_blank" rel="noopener">▶ Watch video</a>
+          <button type="button" class="btn" id="p-video-open">▶ Watch video</button>
         </p>
 
         <div class="pb-two">
@@ -236,6 +236,14 @@ window.__gateFailsafe = setTimeout(function () {
     </aside>
   </div>
 </main>
+
+<!-- Video player: a YouTube link plays here instead of opening YouTube. -->
+<div class="video-overlay" id="video-overlay" role="dialog" aria-modal="true" aria-label="Play video" hidden>
+  <div class="video-box">
+    <button type="button" class="btn video-close" id="video-close" aria-label="Close video">✕ Close</button>
+    <div class="video-frame" id="video-frame"></div>
+  </div>
+</div>
 
 <footer class="site-footer">
   <div class="wrap">
