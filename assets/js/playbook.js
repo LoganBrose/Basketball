@@ -20,6 +20,7 @@ import { loadAll } from './data.js';
 import { isEnabled, isViewer, readSession, sessionValid, siteMaxAge } from './gate.js';
 import {
   usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
+  canUseAdminBook, movePlay,
 } from './teamplays.js';
 import { shortName } from './model.js';
 import { printPlay, printPlaybook } from './printout.js';
@@ -54,6 +55,12 @@ const S = {
   team: [],
   teamPlaybooks: [],
   teamError: null,
+  // The admin playbook: only ever filled for an admin session the script has
+  // confirmed. Everyone else never gets the card, let alone the plays.
+  admin: [],
+  adminPlaybooks: [],
+  adminError: null,
+  adminOn: false,
   playbooks: [],
   lib: { q: '', category: '', tag: '', playbook: '' },
   saveTimer: null,
@@ -1007,7 +1014,14 @@ function renderLibrary() {
   datalist.replaceChildren();
   for (const c of allCategories(plays)) datalist.append(new Option(c));
 
-  const matches = markPublished(scopedPlays(searchPlays(plays, S.lib.q, S.lib)), S.team);
+  const adminById = new Map(S.admin.map((p) => [p.id, p]));
+  const matches = markPublished(scopedPlays(searchPlays(plays, S.lib.q, S.lib)), S.team)
+    .map((p) => {
+      const saved = adminById.get(p.id);
+      return saved
+        ? { ...p, inAdmin: true, newerThanAdmin: String(p.updatedAt || '') > String(saved.updatedAt || '') }
+        : { ...p, inAdmin: false, newerThanAdmin: false };
+    });
   const list = $('#play-list');
   list.replaceChildren();
 
@@ -1021,10 +1035,16 @@ function renderLibrary() {
     return;
   }
 
-  for (const play of matches) list.append(playRow(play, false));
+  for (const play of matches) list.append(playRow(play, 'device'));
 }
 
-function playRow(play, readOnly) {
+/**
+ * One card in a play list.
+ * @param {Object} play
+ * @param {'device'|'team'|'admin'} source  which list the card is in
+ */
+function playRow(play, source) {
+  const readOnly = source !== 'device';
   const li = document.createElement('li');
   li.className = 'play-row' + ((!readOnly || S.viewer) && play.id === S.play.id ? ' active' : '');
 
@@ -1042,12 +1062,18 @@ function playRow(play, readOnly) {
   // Every card says where it lives. This is the whole fix for "it's on my
   // computer but not my phone".
   const badge = document.createElement('span');
-  if (readOnly) {
+  if (source === 'admin') {
+    badge.className = 'src-badge admin';
+    badge.textContent = 'Admin';
+  } else if (readOnly) {
     badge.className = 'src-badge team';
     badge.textContent = 'Team';
   } else if (play.published) {
     badge.className = 'src-badge published';
     badge.textContent = play.newerThanTeam ? 'Edited since publishing' : 'Published';
+  } else if (play.inAdmin) {
+    badge.className = 'src-badge admin';
+    badge.textContent = play.newerThanAdmin ? 'Edited since saving' : 'In admin playbook';
   } else {
     badge.className = 'src-badge device';
     badge.textContent = 'This device';
@@ -1111,7 +1137,7 @@ function playRow(play, readOnly) {
   // Only meaningful while the team playbook is files in the repo. Once it lives
   // in the sheet there is no file behind this play, and a link to one would
   // point at something that is either absent or out of date.
-  if (readOnly && !usingScript()) {
+  if (source === 'team' && !usingScript()) {
     const link = document.createElement('a');
     link.className = 'play-action';
     link.href = fileUrl(play.path || `plays/${pubSlug(play.name)}.json`);
@@ -1122,25 +1148,27 @@ function playRow(play, readOnly) {
     actions.append(link);
   }
 
-  if (!readOnly && play.published) {
+  const keptElsewhere = play.published || play.inAdmin;
+  if (!readOnly && keptElsewhere) {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'play-action';
     remove.textContent = 'Remove local copy';
     remove.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!confirm(`Remove the local copy of “${play.name}”? It stays in the team playbook.`)) return;
+      const where = play.published ? 'the team playbook' : 'the admin playbook';
+      if (!confirm(`Remove the local copy of “${play.name}”? It stays in ${where}.`)) return;
       deletePlay(play.id);
       if (S.play.id === play.id) {
-        const team = S.team.find((t) => t.id === play.id);
-        if (team) loadPlay(structuredClone(team));
+        const kept = S.team.find((t) => t.id === play.id) || S.admin.find((t) => t.id === play.id);
+        if (kept) loadPlay(structuredClone(kept));
       }
       renderLibrary();
     });
     actions.append(remove);
   }
 
-  if (!readOnly && !play.published) {
+  if (!readOnly && !keptElsewhere) {
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'play-action danger';
@@ -1158,6 +1186,14 @@ function playRow(play, readOnly) {
       b.addEventListener('click', (e) => { e.stopPropagation(); relocate(play, { copy }); });
       actions.append(b);
     }
+    // Device -> admin playbook. Keeps the local copy, exactly as publishing to
+    // the team playbook does.
+    if (S.adminOn) {
+      actions.append(actionButton(
+        play.inAdmin ? 'Update in admin playbook' : 'Save to admin playbook',
+        (b) => saveToAdmin(play, b),
+      ));
+    }
   } else {
     const b = document.createElement('button');
     b.type = 'button';
@@ -1172,9 +1208,18 @@ function playRow(play, readOnly) {
     });
     actions.append(b);
 
+    if (source === 'admin') {
+      actions.append(actionButton('Move to team playbook', (b) => moveBetween(play, 'admin', 'team', b)));
+      const del = actionButton('Remove from admin playbook', (b) => removeFromAdmin(play, b));
+      del.classList.add('danger');
+      actions.append(del);
+    } else if (S.adminOn) {
+      actions.append(actionButton('Move to admin playbook', (b) => moveBetween(play, 'team', 'admin', b)));
+    }
+
     // Any coach may remove from the team playbook (a viewer may not), and it
     // asks first: it changes what the whole team sees.
-    if (usingScript() && canPublish() && !S.viewer) {
+    if (source === 'team' && usingScript() && canPublish() && !S.viewer) {
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'play-action danger';
@@ -1214,6 +1259,63 @@ function deleteDevicePlay(play) {
     else { const fresh = newPlay(); savePlay(fresh); loadPlay(fresh); }
   }
   renderLibraryAll();
+}
+
+/** A row action button that does not also open the play. */
+function actionButton(label, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'play-action';
+  b.textContent = label;
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(b); });
+  return b;
+}
+
+/** Run a sheet change from a row button, showing progress and any failure. */
+async function rowAction(button, busy, run, statusSel) {
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = busy;
+  const result = await run();
+  if (!result.ok) {
+    button.disabled = false;
+    button.textContent = label;
+    const status = $(statusSel);
+    if (status) {
+      status.className = 'small missing';
+      status.textContent = result.message;
+    }
+    return false;
+  }
+  return true;
+}
+
+/** Device -> admin playbook. The copy on this device is kept. */
+async function saveToAdmin(play, button) {
+  const ok = await rowAction(button, 'Saving…', () => saveTeamPlay(play, 'admin'), '#admin-status');
+  if (ok) renderAdminBook();
+}
+
+async function removeFromAdmin(play, button) {
+  if (!confirm(`Remove “${play.name}” from the admin playbook?\n\nA copy on this device, if there is one, is kept.`)) return;
+  const ok = await rowAction(button, 'Removing…', () => deleteTeamPlay(play.id, 'admin'), '#admin-status');
+  if (ok) renderAdminBook();
+}
+
+/**
+ * Team <-> admin playbook, in one script call. Taking a play off the team
+ * playbook changes what everyone sees, so that direction asks first.
+ */
+async function moveBetween(play, from, to, button) {
+  const question = from === 'team'
+    ? `Move “${play.name}” to the admin playbook?\n\nIt comes off the team playbook: everyone else loses it on their next refresh.`
+    : `Move “${play.name}” to the team playbook?\n\nEveryone sees it on their next refresh, and it comes out of the admin playbook.`;
+  if (!confirm(question)) return;
+
+  const status = from === 'admin' ? '#admin-status' : '#team-status';
+  const ok = await rowAction(button, 'Moving…', () => movePlay(play.id, from, to), status);
+  if (!ok) return;
+  await Promise.all([renderTeam(), renderAdminBook()]);
 }
 
 async function renderTeam() {
@@ -1278,7 +1380,105 @@ function renderTeamList() {
       : 'Published to the site in plays/ — the same on every device. Opening one copies it here so you can edit it.';
   }
 
-  for (const play of shown) list.append(playRow(play, true));
+  for (const play of shown) list.append(playRow(play, 'team'));
+}
+
+/* ------------------------------------------------------------------ */
+/* Admin playbook                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build the admin playbook card, or take it away.
+ *
+ * Like the Stats and Admin links, the card is created by JavaScript for an
+ * admin only, so for everyone else it is not hidden — it is never built. The
+ * script is the real limit: it answers a non-admin token as if the admin
+ * playbook did not exist.
+ */
+function syncAdminCard() {
+  const want = !S.viewer && canUseAdminBook();
+  const existing = $('#admin-card');
+
+  if (!want) {
+    if (existing) existing.remove();
+    S.adminOn = false;
+    S.admin = [];
+    S.adminPlaybooks = [];
+    return false;
+  }
+  if (existing) return true;
+
+  const card = document.createElement('details');
+  card.className = 'card collapsible';
+  card.id = 'admin-card';
+  card.dataset.collapse = 'admin';
+  card.open = true;
+
+  const summary = document.createElement('summary');
+  summary.className = 'pb-side-head';
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Admin playbook';
+  const count = document.createElement('span');
+  count.className = 'pill';
+  count.id = 'admin-count';
+  count.textContent = '0';
+  summary.append(h2, count);
+
+  const blurb = document.createElement('p');
+  blurb.className = 'small muted';
+  blurb.textContent = 'Only you see this. Saved in the sheet, so it is the same on all your devices. Opening one copies it here so you can edit it.';
+  const status = document.createElement('p');
+  status.className = 'small';
+  status.id = 'admin-status';
+  const list = document.createElement('ul');
+  list.className = 'play-list';
+  list.id = 'admin-list';
+
+  card.append(summary, blurb, status, list);
+  $('#team-card').after(card);
+  bindCollapsible(card, readCollapsed());
+
+  S.adminOn = true;
+  return true;
+}
+
+async function renderAdminBook() {
+  if (!syncAdminCard()) {
+    renderLibraryAll();
+    return;
+  }
+  const { plays, playbooks, error } = await fetchTeamPlays('admin');
+  S.admin = plays;
+  S.adminPlaybooks = playbooks || [];
+  S.adminError = error;
+  renderLibraryAll();   // device badges and the playbook picker depend on it
+}
+
+/** Render only — changing the playbook picker must not refetch the sheet. */
+function renderAdminList() {
+  const list = $('#admin-list');
+  if (!list) return;
+  const status = $('#admin-status');
+  const shown = scopedPlays(S.admin);
+
+  $('#admin-count').textContent = String(shown.length);
+  list.replaceChildren();
+
+  if (S.adminError) {
+    status.className = 'small missing';
+    status.textContent = `Couldn't load the admin playbook — ${S.adminError}`;
+  } else if (S.admin.length === 0) {
+    status.className = 'small muted';
+    status.textContent = 'Nothing here yet. Use “Save to admin playbook” on a play on this device.';
+  } else if (shown.length === 0) {
+    status.className = 'small muted';
+    status.textContent = 'Nothing in this playbook here yet.';
+  } else {
+    status.className = 'small muted';
+    status.textContent = '';
+  }
+
+  for (const play of shown) list.append(playRow(play, 'admin'));
 }
 
 function download(filename, text) {
@@ -1315,7 +1515,7 @@ function refreshPlaybooks() {
   // counts the team's plays only.
   S.playbooks = S.viewer
     ? mergePlaybooks(S.teamPlaybooks.map((pb) => ({ ...pb, plays: [] })), [], S.team)
-    : mergePlaybooks(S.teamPlaybooks, readLocalPlaybooks(), listPlays());
+    : mergePlaybooks(S.teamPlaybooks, [...readLocalPlaybooks(), ...S.adminPlaybooks], listPlays());
 
   // Library picker: "All plays" plus every playbook with its count.
   const picker = $('#lib-playbook');
@@ -1352,6 +1552,7 @@ function renderLibraryAll() {
   refreshPlaybooks();
   renderLibrary();
   renderTeamList();
+  renderAdminList();
   refreshPublish();
 }
 
@@ -1611,27 +1812,33 @@ const COLLAPSE_KEY = 'bb.collapse.v1';
  * choice, so a coach who collapses the library keeps a short page next time
  * instead of re-collapsing it on every visit.
  */
-function bindCollapsibles() {
-  let saved = {};
+function readCollapsed() {
   try {
-    saved = JSON.parse(globalThis.localStorage?.getItem(COLLAPSE_KEY) || '{}') || {};
+    return JSON.parse(globalThis.localStorage?.getItem(COLLAPSE_KEY) || '{}') || {};
   } catch {
-    saved = {};
+    return {};
   }
+}
 
-  for (const card of document.querySelectorAll('[data-collapse]')) {
-    const key = card.dataset.collapse;
-    if (key in saved) card.open = Boolean(saved[key]);
+function bindCollapsible(card, saved) {
+  const key = card.dataset.collapse;
+  if (key in saved) card.open = Boolean(saved[key]);
 
-    card.addEventListener('toggle', () => {
-      saved[key] = card.open;
-      try {
-        globalThis.localStorage?.setItem(COLLAPSE_KEY, JSON.stringify(saved));
-      } catch {
-        /* blocked storage: collapsing still works, it just won't be remembered */
-      }
-    });
-  }
+  card.addEventListener('toggle', () => {
+    // Re-read, so two cards toggled in one visit don't overwrite each other.
+    const now = readCollapsed();
+    now[key] = card.open;
+    try {
+      globalThis.localStorage?.setItem(COLLAPSE_KEY, JSON.stringify(now));
+    } catch {
+      /* blocked storage: collapsing still works, it just won't be remembered */
+    }
+  });
+}
+
+function bindCollapsibles() {
+  const saved = readCollapsed();
+  for (const card of document.querySelectorAll('[data-collapse]')) bindCollapsible(card, saved);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1830,7 +2037,16 @@ function init() {
   whenSignedIn(() => {
     if (!S.viewer && isViewer()) enterViewerMode();
     renderTeam();
-    if (!S.viewer) loadRoster();
+    if (!S.viewer) {
+      loadRoster();
+      if (canUseAdminBook()) renderAdminBook();
+    }
+  });
+
+  // The script's answer about features arrives after the page has loaded, and
+  // can change between visits. Add or take away the admin card to match.
+  document.addEventListener('bb:features', () => {
+    if (!S.viewer) renderAdminBook();
   });
 }
 

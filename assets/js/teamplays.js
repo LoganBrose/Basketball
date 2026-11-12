@@ -15,20 +15,15 @@
  */
 
 import { CONFIG } from './config.js';
-import { callScript, isEnabled, isViewer, readSession, readAdminSession, sessionValid, siteMaxAge, adminMaxAge } from './gate.js';
+import { callScript, isEnabled, isViewer, bestToken, adminToken } from './gate.js';
+import { hasFeature } from './features.js';
 import { normalizePlay, loadTeamPlaybook } from './library.js';
 import { DEFAULT_PLAYBOOK } from './playbooks.js';
 
 /** True when the sheet is the team playbook, rather than `plays/`. */
 export const usingScript = () => isEnabled(CONFIG.gate);
 
-const siteToken = () => {
-  const gate = CONFIG.gate || {};
-  const admin = readAdminSession();
-  if (sessionValid(admin, adminMaxAge(gate))) return admin.token;
-  const site = readSession();
-  return sessionValid(site, siteMaxAge(gate)) ? site.token : '';
-};
+const siteToken = () => bestToken(CONFIG.gate || {});
 
 /**
  * The token that may change the team playbook: the admin's if there is one,
@@ -83,25 +78,52 @@ export function rowsToTeam(rows = []) {
 }
 
 /* ------------------------------------------------------------------ */
+/* The admin playbook                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Is the admin playbook offered on this page?
+ *
+ * It needs an admin session and the script's word that this login has it. The
+ * second half matters for the order things are deployed in: a site updated
+ * before the script would otherwise show a card the old script cannot fill.
+ * The script refuses every non-admin token whatever this says.
+ */
+export const canUseAdminBook = () => usingScript() && Boolean(adminToken()) && hasFeature('adminPlaybook');
+
+/** How each book is named in a sentence. */
+export const BOOK_LABEL = { team: 'team playbook', admin: 'admin playbook' };
+
+/** The token a book is read with, or '' when this browser has none. */
+const readToken = (book) => (book === 'admin' ? adminToken() : siteToken());
+/** The token a book is changed with. */
+const changeToken = (book) => (book === 'admin' ? adminToken() : writeToken());
+
+/** The request body for a book: the team playbook is sent exactly as before. */
+const withBook = (payload, book) => (book === 'team' ? payload : { ...payload, book });
+
+/* ------------------------------------------------------------------ */
 /* Reading                                                             */
 /* ------------------------------------------------------------------ */
 
 /**
+ * @param {'team'|'admin'} [book]
  * @returns {Promise<{plays, playbooks, error, source}>}
  *   `source` is 'script' or 'files', so the UI can say which one it is reading
  *   rather than leaving "where did my play go" unanswerable.
  */
-export async function fetchTeamPlays() {
+export async function fetchTeamPlays(book = 'team') {
   if (!usingScript()) {
+    if (book !== 'team') return { plays: [], playbooks: [], error: null, source: 'files' };
     return { ...(await loadTeamPlaybook()), source: 'files' };
   }
 
-  const token = siteToken();
+  const token = readToken(book);
   if (!token) {
     return { plays: [], playbooks: [], error: 'sign in to load it.', source: 'script' };
   }
 
-  const result = await callScript(CONFIG.gate.url, { action: 'plays', token });
+  const result = await callScript(CONFIG.gate.url, withBook({ action: 'plays', token }, book));
 
   if (!result.ok) {
     return { plays: [], playbooks: [], error: result.error, source: 'script' };
@@ -109,7 +131,9 @@ export async function fetchTeamPlays() {
   if (!result.data?.ok) {
     return {
       plays: [], playbooks: [],
-      error: result.data?.reason === 'auth' ? 'your sign-in has expired.' : 'the script refused the request.',
+      error: result.data?.reason === 'auth' || book === 'admin'
+        ? 'your sign-in has expired.'
+        : 'the script refused the request.',
       source: 'script',
     };
   }
@@ -122,49 +146,68 @@ export async function fetchTeamPlays() {
 /* ------------------------------------------------------------------ */
 
 /** What the UI should say for each way a save can fail. */
-export function saveMessage(result) {
-  if (!result.ok) return "Couldn't reach the team playbook. Try again.";
+export function saveMessage(result, book = 'team') {
+  const label = BOOK_LABEL[book] || BOOK_LABEL.team;
+  if (!result.ok) return `Couldn't reach the ${label}. Try again.`;
 
   const data = result.data || {};
   if (data.ok) return '';
 
   switch (data.reason) {
     case 'auth':
-      return 'Your sign-in has expired. Sign in again to publish.';
+    // The admin playbook answers a lapsed admin session exactly like a missing
+    // action, so that is what an expired admin sign-in looks like from here.
+    case 'unknown_action':
+      return 'Your sign-in has expired. Sign in again to save.';
     case 'too_big':
-      return 'This play is too large to save to the team playbook. Split it into two plays or remove frames.';
+      return `This play is too large to save to the ${label}. Split it into two plays or remove frames.`;
+    case 'not_found':
+      return `That play is no longer in the ${label}. Refresh to see the current list.`;
     default:
-      return "Couldn't save this play to the team playbook.";
+      return `Couldn't save this play to the ${label}.`;
   }
 }
 
 /**
- * Add or replace one play in the team playbook.
+ * Add or replace one play in a book.
  * @returns {Promise<{ok: boolean, message: string}>}
  */
-export async function saveTeamPlay(play) {
-  const token = writeToken();
-  if (!token) return { ok: false, message: 'Sign in to publish to the team playbook.' };
+export async function saveTeamPlay(play, book = 'team') {
+  const token = changeToken(book);
+  if (!token) return { ok: false, message: `Sign in to save to the ${BOOK_LABEL[book]}.` };
 
-  const result = await callScript(CONFIG.gate.url, { action: 'savePlay', token, play });
-  const message = saveMessage(result);
+  const result = await callScript(CONFIG.gate.url, withBook({ action: 'savePlay', token, play }, book));
+  const message = saveMessage(result, book);
   return { ok: message === '', message };
 }
 
-/** Remove one play from the team playbook. */
-export async function deleteTeamPlay(id) {
-  const token = writeToken();
-  if (!token) return { ok: false, message: 'Sign in to remove from the team playbook.' };
+/** Remove one play from a book. */
+export async function deleteTeamPlay(id, book = 'team') {
+  const token = changeToken(book);
+  if (!token) return { ok: false, message: `Sign in to remove from the ${BOOK_LABEL[book]}.` };
 
-  const result = await callScript(CONFIG.gate.url, { action: 'deletePlay', token, id });
-  if (!result.ok) return { ok: false, message: "Couldn't reach the team playbook. Try again." };
+  const result = await callScript(CONFIG.gate.url, withBook({ action: 'deletePlay', token, id }, book));
+  if (!result.ok) return { ok: false, message: `Couldn't reach the ${BOOK_LABEL[book]}. Try again.` };
   if (!result.data?.ok) {
     return {
       ok: false,
-      message: result.data?.reason === 'auth'
+      message: ['auth', 'unknown_action'].includes(result.data?.reason)
         ? 'Your sign-in has expired. Sign in again to remove.'
         : "Couldn't remove this play.",
     };
   }
   return { ok: true, message: '' };
+}
+
+/**
+ * Move a play between the team playbook and the admin playbook, in one script
+ * call that copies and then deletes under a lock. Admin only.
+ */
+export async function movePlay(id, from, to) {
+  const token = adminToken();
+  if (!token) return { ok: false, message: 'Sign in again to move plays.' };
+
+  const result = await callScript(CONFIG.gate.url, { action: 'movePlay', token, id, from, to });
+  const message = saveMessage(result, to);
+  return { ok: message === '', message };
 }

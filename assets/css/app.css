@@ -898,8 +898,10 @@ tbody tr.selected-row td:first-child { background: var(--accent-soft); font-weig
 .src-badge.team { background: var(--accent-soft); color: var(--accent); }
 .src-badge.device { background: var(--surface-2); color: var(--muted); }
 .src-badge.published { background: var(--flag-soft); color: var(--flag); }
+/* The admin playbook: the one badge only the admin ever sees. */
+.src-badge.admin { background: var(--text); color: var(--surface); }
 
-.play-actions { display: flex; gap: 10px; padding: 0 8px 8px; }
+.play-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 8px 8px; }
 
 .play-action {
   font: inherit;

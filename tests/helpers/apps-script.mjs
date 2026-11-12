@@ -38,6 +38,7 @@ export function loadCodeGs(props = {}) {
   };
 
   const rows = [];
+  const logged = [];
   const cache = new Map();
   /** Lock bookkeeping — a lock left held blocks every later write. */
   const locks = { taken: 0, released: 0 };
@@ -118,14 +119,15 @@ export function loadCodeGs(props = {}) {
       createTextOutput: (text) => ({ setMimeType: () => ({ body: text }) }),
     },
 
-    Logger: { log: () => {} },
+    Logger: { log: (...args) => logged.push(args) },
     console: { error: () => {}, log: () => {} },
   };
 
   // Everything Code.gs defines that a test might want to reach.
   const exported = [
     'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleSignIns', 'handleData',
-    'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'playsSheet',
+    'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'handleMovePlay', 'playsSheet',
+    'stageOf', 'released', 'featuresFor', 'cellText', 'ensureTab', 'checkSetup',
     'handleCheck', 'handleSignOutAll', 'readActiveSessions',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];
@@ -139,7 +141,7 @@ export function loadCodeGs(props = {}) {
 
   return {
     fns: factory(...names.map((n) => globals[n])),
-    rows, cache, locks, sheets, props: properties,
+    rows, cache, locks, sheets, logged, props: properties,
   };
 }
 
@@ -157,7 +159,10 @@ export function tabFor(values) {
 
   return {
     rows: values,
-    getDataRange: () => ({ getDisplayValues: () => values.map((r) => r.map(asText)) }),
+    getDataRange: () => ({
+      getDisplayValues: () => values.map((r) => r.map(asText)),
+      getValues: () => values.map((r) => r.slice()),
+    }),
     appendRow: (r) => values.push(r.slice()),
     setFrozenRows: () => {},
     deleteRow: (rowIndex) => values.splice(rowIndex - 1, 1),
