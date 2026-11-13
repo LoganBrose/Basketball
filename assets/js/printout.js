@@ -169,7 +169,6 @@ export function scoutPrintModel(report) {
     if (note && String(note.text || '').trim()) notes.push({ title, text: note.text, private: privateNote });
   };
   add(`About ${game.opponent || 'them'}`, report.overview);
-  add('This game', report.gameNotes);
 
   const players = (report.players || []).map((p) => ({
     title: playerTitle(p),

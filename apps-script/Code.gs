@@ -715,10 +715,9 @@ function findPlayRow(sheet, id) {
 /*
  * Scouting belongs to the OPPONENT, not the game, so a report carries over the
  * next time we play them. An opponent is identified by its name on the Games
- * tab, compared trimmed and case-insensitively (opponentKey). Game notes are
- * the one thing kept per game, on top.
+ * tab, compared trimmed and case-insensitively (opponentKey).
  *
- * All four tabs live in the log spreadsheet. The stats spreadsheet is only ever
+ * All the scouting tabs live in the log spreadsheet. The stats spreadsheet is only ever
  * read: Games supplies the schedule, and nothing here writes to it.
  *
  * Private notes have a tab of their own, which only an admin-token code path
@@ -731,8 +730,8 @@ var OPPONENTS_HEADERS = ['OpponentKey', 'Opponent', 'Overview', 'Updated', 'Upda
 var SCOUT_PLAYERS_SHEET = 'ScoutPlayers';
 var SCOUT_PLAYERS_HEADERS = ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl',
   'Order', 'Updated', 'UpdatedBy'];
-var SCOUT_GAME_NOTES_SHEET = 'ScoutGameNotes';
-var SCOUT_GAME_NOTES_HEADERS = ['GameId', 'OpponentKey', 'Notes', 'Updated', 'UpdatedBy'];
+// Per-game notes ("This game") were removed. A ScoutGameNotes tab from before
+// that is left exactly as it is; nothing reads or writes it any more.
 var SCOUT_PRIVATE_SHEET = 'ScoutPrivate';
 var SCOUT_PRIVATE_HEADERS = ['OpponentKey', 'Notes', 'Updated', 'UpdatedBy'];
 
@@ -749,7 +748,6 @@ var OPPONENT_PLAYS_HEADERS = ['Id', 'OpponentKey', 'Opponent', 'SourceId', 'Game
 var SCOUT_TABS = [
   [OPPONENTS_SHEET, OPPONENTS_HEADERS],
   [SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS],
-  [SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS],
   [SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS],
   [OPPONENT_PLAYS_SHEET, OPPONENT_PLAYS_HEADERS],
 ];
@@ -955,7 +953,7 @@ function handleScoutGames(body) {
  *
  *   viewer: the game, key players (number, name, position, blurb, stats link)
  *           and the opponent's plays
- *   coach:  + overview, game notes, who saved what
+ *   coach:  + overview, who saved what
  *   admin:  + private notes
  */
 function handleScoutReport(body) {
@@ -992,7 +990,6 @@ function handleScoutReport(body) {
 
   if (editor) {
     report.overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
-    report.gameNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS), 0, game.gameId), 2);
   }
   if (who.role === 'admin') {
     report.privateNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS), 0, game.opponentKey), 1);
@@ -1229,7 +1226,6 @@ function handleDeleteScoutPlayer(body) {
 /**
  * Save one block of notes:
  *   overview — about the opponent, kept for every game against them;
- *   game     — about this game only;
  *   private  — the admin's own notes on the opponent. Admin only.
  */
 function handleSaveScoutNotes(body) {
@@ -1237,7 +1233,7 @@ function handleSaveScoutNotes(body) {
   if (!who || !scoutEditor(who)) return notReleased();
   var kind = String(body.kind || '');
   if (kind === 'private' && who.role !== 'admin') return notReleased();
-  if (['overview', 'game', 'private'].indexOf(kind) === -1) return { ok: false, reason: 'bad_request' };
+  if (['overview', 'private'].indexOf(kind) === -1) return { ok: false, reason: 'bad_request' };
   var game = scoutGame(who, body.gameId);
   if (!game) return { ok: false, reason: 'not_found' };
 
@@ -1256,10 +1252,6 @@ function handleSaveScoutNotes(body) {
       sheet = ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS);
       key = game.opponentKey;
       row = [cellText(key), cellText(game.opponent), text, now, name];
-    } else if (kind === 'game') {
-      sheet = ensureTab(ss, SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS);
-      key = game.gameId;
-      row = [cellText(key), cellText(game.opponentKey), text, now, name];
     } else {
       sheet = ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS);
       key = game.opponentKey;
