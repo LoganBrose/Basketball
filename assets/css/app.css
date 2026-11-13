@@ -1234,3 +1234,23 @@ details.scout-group .panel-body { font-size: inherit; }
 
 .scout-form { margin: 8px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .scout-form textarea { margin-bottom: 4px; }
+
+/* Opponent plays: the builder's game picker, and the viewer on a report. */
+.picker-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(0, 0, 0, 0.6);
+}
+.picker-overlay[hidden] { display: none; }
+.picker-box { width: min(440px, 100%); margin: 0; }
+.picker-box h2 { margin-top: 0; }
+.picker-box .field { margin: 12px 0; }
+
+.scout-opp-play { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.scout-opp-play:last-child { border-bottom: 0; }
+.scout-opp-play h4 { margin: 0 0 6px; }
+.pv-wrap { max-width: 560px; }
+.pv-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.pv-step { margin-left: 4px; }
+.pv-court { width: 100%; max-height: 60vh; }
+.pv-court .token { cursor: default; }

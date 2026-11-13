@@ -362,6 +362,7 @@ feature](#releasing-a-feature)). It starts at **admin only**.
 | **This game** | Notes for this game only | read + edit | read + edit | — |
 | **Key players** | Number, name, position, a short blurb, and a **View stats** button | read + edit | read + edit | **read** |
 | **Private notes** | Your own notes on the opponent | read + edit | — | — |
+| **Their plays** | The opponent's plays, drawn in the play builder. Step through them and press ▶ Play, as with ours | read + remove | read + remove | **read** |
 
 **Scouting belongs to the opponent, not the game.** Play North twice and the second report already
 has North's key players, overview and private notes. Only *This game* starts empty. Opponents are
@@ -375,6 +376,25 @@ the key players and stats buttons. Days are counted in your time zone: the scrip
 Script → Project Settings → Time zone), or the `TIME_ZONE` Script Property if you set one (for example
 `America/Chicago`). The script enforces this. A player asking for any other game is told it doesn't
 exist.
+
+### Their plays
+
+Draw the opponent's play in the **play builder**, like any other play, then press **Save to
+opponent playbook** (next to Publish). Pick a game from the list, shown by date and opponent, and
+press Save. The play goes to **that game's opponent**, so it shows under *Their plays* on every report
+against them, at the bottom of the report.
+
+- **It never goes into your playbooks**: not *On this device*, not the team playbook, not the admin
+  playbook. It's kept in its own tab, `OpponentPlays`.
+- **The copy on this device stays**, as your working draft, unless you tick *Remove the copy on this
+  device after saving*.
+- **Saving the same play to the same opponent again updates it** instead of adding a second copy.
+  Saving it to a different opponent makes a separate play.
+- **Open in builder** on a report puts the play back on this device so you can change it; save it to
+  the opponent again to update the report. **Remove** takes it off every report against them.
+- Tokens show the slot number only: your lineup names belong on your plays, not theirs.
+- The button is there for admin and coaches once Scouting is released to them. Players can watch the
+  plays on a report but never get the button.
 
 **Stats links are only stored, never fetched.** Paste any page — MaxPreps, a league site — and the
 button opens it in a new tab. Only `http`/`https` links are kept; `maxpreps.com/...` typed without the
@@ -400,8 +420,11 @@ ever sent a game's ID, date, opponent and home/away — never a score.
 | `ScoutPlayers` | `Id`, `OpponentKey`, `Number`, `Name`, `Position`, `Blurb`, `StatsUrl`, `Order`, `Updated`, `UpdatedBy` | key player |
 | `ScoutGameNotes` | `GameId`, `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | game |
 | `ScoutPrivate` | `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | opponent — **admin only** |
+| `OpponentPlays` | `Id`, `OpponentKey`, `Opponent`, `SourceId`, `GameId`, `Name`, `Updated`, `UpdatedBy`, `JSON` | opponent play |
 
-`OpponentKey` is the opponent's name in lowercase with spaces tidied. Private notes have a tab of
+`OpponentKey` is the opponent's name in lowercase with spaces tidied. In `OpponentPlays`, `SourceId` is
+the builder play it was saved from (how a second save finds the first), `GameId` is the game picked
+when it was first saved, and `JSON` is the play itself. Private notes have a tab of
 their own that only an admin request ever opens, so they can't leak through another tab's reply. A
 key player's `Order` sorts the list (lower first; ties go by number). It isn't on the page yet, but
 you can set it in the sheet. Each opponent holds up to 30 key players.
@@ -472,8 +495,8 @@ Optional:
 
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.
-It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays` and
-the scouting tabs) with its header row, and logs the time zone and today's date that scouting uses. **It never clears or rewrites a tab that already exists**; if one's header row
+It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays`, the
+scouting tabs and `OpponentPlays`) with its header row, and logs the time zone and today's date that scouting uses. **It never clears or rewrites a tab that already exists**; if one's header row
 has drifted, it logs a warning and leaves it alone.
 
 **5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
@@ -740,6 +763,9 @@ scripts. There are no dependencies and nothing is bundled — the site's files s
 | `assets/js/features.js` | which staged features this login may see — pure and tested |
 | `assets/js/scout.js` | scouting: grouping the schedule, dates, messages — pure and tested |
 | `assets/js/scouting.js` | the Scouting page |
+| `assets/js/draw.js` | how a play is drawn — shared by the builder, the printout and Scouting |
+| `assets/js/playviewer.js` | a read-only play with steps and ▶ Play, for the opponent's plays |
+| `assets/js/opponentplays.js` | "Save to opponent playbook": the game picker and its calls |
 | `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 

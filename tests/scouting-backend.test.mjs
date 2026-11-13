@@ -187,7 +187,7 @@ test('a viewer gets the game and the key players, and no notes of any kind', () 
   const ctx = ctxWith();
   seed(ctx);
   const r = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' });
-  assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'players', 'role']);
+  assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'players', 'plays', 'role']);
   assert.deepEqual(Object.keys(r.players[0]).sort(), ['blurb', 'id', 'name', 'number', 'position', 'statsUrl']);
   assert.equal(r.players[0].statsUrl, 'https://www.maxpreps.com/x');
   assert.doesNotMatch(JSON.stringify(r), /press|Senior|old sets|Casey/);
