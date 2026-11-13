@@ -861,23 +861,70 @@ function dayNumber(key) {
 /**
  * A Games date cell as yyyy-MM-dd, or '' when it can't be read.
  *
- * The raw value is tried first: Sheets hands a date cell over as a real Date,
- * whatever the spreadsheet's display format. That Date is midnight in the
- * spreadsheet's time zone, so it is read back in that same zone (`tz`), and
- * the day matches the cell whatever TIME_ZONE or the project says. Formatted
- * in any zone to the west, it would land on the evening before.
- * Text typed as M/D/YYYY or YYYY-MM-DD is the fallback.
+ * The day comes from what the cell shows (`shown`), because that is the day
+ * the coach typed and sees. The raw Date can't be trusted for it: Sheets
+ * turns a date cell into a moment using a time zone the script can't always
+ * learn (getSpreadsheetTimeZone() can come back empty), and read in Eastern
+ * time, midnight UTC on Nov 16 is the evening of Nov 15.
+ *
+ * Shown as M/D/YYYY, M/D/YY, YYYY-MM-DD, or with a month name ("Nov 16",
+ * "Monday, November 16, 2026"). When the display leaves the year out ("11/16"),
+ * it is the year that puts the day nearest the raw Date, or nearest today for
+ * plain text. Only a display that can't be read falls back to formatting the
+ * raw Date in `tz`.
  */
 function gameDateKey(raw, shown, tz) {
-  if (Object.prototype.toString.call(raw) === '[object Date]' && isFinite(raw.getTime())) {
-    return Utilities.formatDate(raw, tz || scoutTimeZone(), 'yyyy-MM-dd');
-  }
+  var isDate = Object.prototype.toString.call(raw) === '[object Date]' && isFinite(raw.getTime());
   var text = String(shown == null ? '' : shown).trim();
-  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
-  if (m) return pad4(m[1]) + '-' + pad2(m[2]) + '-' + pad2(m[3]);
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
-  if (m) return m[3] + '-' + pad2(m[1]) + '-' + pad2(m[2]);
+  var parts = shownDateParts(text);
+  if (parts) {
+    var year = parts.year;
+    if (!year) {
+      var anchor = isDate ? Math.floor(raw.getTime() / 86400000) : dayNumber(todayKey());
+      year = nearestYear(parts.month, parts.day, anchor);
+    }
+    return validDay(year, parts.month, parts.day);
+  }
+  if (isDate) return Utilities.formatDate(raw, tz || scoutTimeZone(), 'yyyy-MM-dd');
   return '';
+}
+
+var MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** {year (0 when not shown), month, day} from a date as displayed, or null. */
+function shownDateParts(text) {
+  // A leading weekday ("Mon, " / "Monday ") says nothing the date doesn't.
+  var t = text.replace(/^[A-Za-z]+\.?,?\s+(?=[A-Za-z]+\.?\s+\d|\d)/, '');
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+  if (m) return { year: +m[1], month: +m[2], day: +m[3] };
+  m = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(t);
+  if (m) return { year: m[3] ? fullYear(m[3]) : 0, month: +m[1], day: +m[2] };
+  m = /^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?$/.exec(t);
+  if (m) {
+    var month = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1;
+    if (month > 0) return { year: m[3] ? +m[3] : 0, month: month, day: +m[2] };
+  }
+  return null;
+}
+
+function fullYear(y) { return y.length === 2 ? 2000 + Number(y) : Number(y); }
+
+/** The year, next to the anchor day's, that puts month/day nearest it. */
+function nearestYear(month, day, anchorDay) {
+  var base = new Date(anchorDay * 86400000).getUTCFullYear();
+  var best = base, bestGap = Infinity;
+  for (var y = base - 1; y <= base + 1; y++) {
+    var gap = Math.abs(Date.UTC(y, month - 1, day) / 86400000 - anchorDay);
+    if (gap < bestGap) { best = y; bestGap = gap; }
+  }
+  return best;
+}
+
+/** yyyy-MM-dd for a real calendar day, or '' (Feb 30, month 13). */
+function validDay(year, month, day) {
+  var d = new Date(Date.UTC(year, month - 1, day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return '';
+  return pad4(year) + '-' + pad2(month) + '-' + pad2(day);
 }
 
 function pad2(n) { return ('0' + n).slice(-2); }

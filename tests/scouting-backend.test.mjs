@@ -161,6 +161,32 @@ test('with no TIME_ZONE, "today" follows the spreadsheet\'s zone, not the projec
   assert.equal(ctx.fns.todayKey(), '2026-11-14');
 });
 
+test('the day is what the cell shows, even when the stored moment is the evening before', () => {
+  // The live sheet: getSpreadsheetTimeZone() came back empty and a cell shown
+  // as 11/16 held midnight UTC, which is 7pm on Nov 15 in New York.
+  const ctx = ctxWith();
+  ctx.spreadsheet.timeZone = '';
+  ctx.sheets.Games.rows.push(
+    ['G10', { value: new Date('2026-11-16T00:00:00Z'), shown: '11/16' }, 'Taylor', 'Home', '', ''],
+    ['G11', { value: new Date('2027-01-01T00:00:00Z'), shown: '12/31' }, 'Year End', 'Home', '', ''],
+    ['G12', { value: new Date('2026-11-17T00:00:00Z'), shown: 'Tue, Nov 17' }, 'Words', 'Home', '', ''],
+    ['G13', { value: new Date('2026-11-18T00:00:00Z'), shown: 'Wednesday, November 18, 2026' }, 'Long', 'Home', '', ''],
+    ['G14', { value: new Date('2026-11-19T05:00:00Z'), shown: '' }, 'Unreadable display', 'Home', '', ''],
+    ['G15', '11/22', 'Typed no year', 'Home', '', ''],
+    ['G16', '2/30/2026', 'Not a day', 'Home', '', ''],
+  );
+  const date = (id) => ctx.fns.readGames().find((g) => g.gameId === id)?.date;
+  assert.equal(date('G10'), '2026-11-16');
+  assert.equal(date('G11'), '2026-12-31', 'the year is the one nearest the stored moment');
+  assert.equal(date('G12'), '2026-11-17');
+  assert.equal(date('G13'), '2026-11-18');
+  assert.equal(date('G14'), '2026-11-19', 'a display it cannot read falls back to the stored moment');
+  assert.equal(date('G15'), '2026-11-22', 'typed text with no year takes the nearest year to today');
+  assert.equal(date('G16'), undefined);
+  const taylor = ctx.fns.handleScoutGames({ token: ctx.coach }).upcoming.find((g) => g.gameId === 'G10');
+  assert.equal(taylor.daysAway, 3, 'Nov 16 is three days from Friday Nov 13');
+});
+
 test('no score ever leaves the script for anyone but through the admin stats route', () => {
   const ctx = ctxWith();
   seed(ctx, 'G03');
