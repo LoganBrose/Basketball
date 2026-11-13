@@ -20,6 +20,20 @@ import {
 import { mountPlayViewer } from './playviewer.js';
 import { deleteOpponentPlay } from './opponentplays.js';
 import { listPlays, savePlay } from './library.js';
+import { createDrawer } from './draw.js';
+import { printScoutReport } from './printout.js';
+
+/**
+ * Renderers for paper. No lineup: these are the opponent's players, so the
+ * tokens print their slot numbers, exactly as on the page.
+ */
+const opponentDraw = createDrawer({ playerFor: () => null });
+const printDraw = {
+  defs: (id) => opponentDraw.defs(id),
+  renderToken: (t) => opponentDraw.renderToken(t),
+  renderArrow: (a, markerId) => opponentDraw.renderArrow(a, false, markerId),
+  renderText: (t) => opponentDraw.renderText(t),
+};
 
 const root = document.getElementById('scout-root');
 const S = { schedule: null };
@@ -169,6 +183,11 @@ function renderReport(host, r) {
   host.replaceChildren();
   const reload = () => loadReport(host, r.game.gameId);
   const ctx = { gameId: r.game.gameId, canEdit: r.canEdit, reload };
+
+  // Prints exactly what this login was sent: a coach's PDF has no private
+  // notes because a coach's report never had any.
+  host.append(el('div', { class: 'scout-report-actions' },
+    button('Export scouting PDF', () => printScoutReport(r, printDraw), 'btn btn-small')));
 
   // Only what arrived is drawn; a viewer's reply has no notes in it at all.
   if (r.overview) {

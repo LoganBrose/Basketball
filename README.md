@@ -337,6 +337,8 @@ you're in dark mode.
 **Download backup (.json)**, under *More*, is for re-importing into the builder — not a viewable
 document.
 
+Scouting reports have their own PDF export on the Scouting page. See [Scouting PDF](#scouting-pdf).
+
 ---
 
 ## Scouting
@@ -395,6 +397,18 @@ against them, at the bottom of the report.
 - Tokens show the slot number only: your lineup names belong on your plays, not theirs.
 - The button is there for admin and coaches once Scouting is released to them. Players can watch the
   plays on a report but never get the button.
+
+### Scouting PDF
+
+**Export scouting PDF**, at the top of each report, prints that report on its own. It is separate
+from the playbook PDF and never mixes in your plays. Page one has the opponent, the date and
+home/away, the notes, and the key players, with each stats link printed as text. Their plays follow,
+each on its own page with every step drawn, exactly as the playbook PDF draws yours. Use your
+browser's "Save as PDF" (computer) or the share sheet (phone).
+
+**It prints what that login can see, and nothing more.** Your PDF has your private notes in a box
+marked *only you*. A coach's has no private notes, because a coach's report never had any. A
+player's has only the key players and their plays. Empty notes are left off the page.
 
 **Stats links are only stored, never fetched.** Paste any page — MaxPreps, a league site — and the
 button opens it in a new tab. Only `http`/`https` links are kept; `maxpreps.com/...` typed without the

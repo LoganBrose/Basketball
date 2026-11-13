@@ -13,6 +13,7 @@
 
 import { courtSize, renderCourt, SVG_NS } from './court.js';
 import { safeVideoUrl } from './library.js';
+import { dateParts, matchup, playerTitle } from './scout.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -143,5 +144,114 @@ export function printPlaybook(playbook, plays, draw) {
   root.append(coverPage(playbook, plays));
   // Each play starts its own page; the cover already occupies the first.
   for (const play of plays) root.append(playSection(play, draw, { startOnNewPage: true }));
+  return present(root);
+}
+
+/* ------------------------------------------------------------------ */
+/* Scouting report                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What goes on paper for one scouting report, from the report exactly as the
+ * Apps Script sent it to this login.
+ *
+ * Nothing is added and nothing is filtered here: a coach's report never had
+ * private notes in it, and a player's never had notes of any kind, so their
+ * PDFs can't contain them. Empty notes are left off the paper; the key players
+ * section always prints, so an empty one reads as "none listed" rather than as
+ * a page that failed to load.
+ */
+export function scoutPrintModel(report) {
+  const game = report.game || {};
+  const d = dateParts(game.date);
+  const notes = [];
+  const add = (title, note, privateNote = false) => {
+    if (note && String(note.text || '').trim()) notes.push({ title, text: note.text, private: privateNote });
+  };
+  add(`About ${game.opponent || 'them'}`, report.overview);
+  add('This game', report.gameNotes);
+
+  const players = (report.players || []).map((p) => ({
+    title: playerTitle(p),
+    blurb: p.blurb || '',
+    // Paper has no buttons: the link itself is printed, and only a web link.
+    stats: safeVideoUrl(p.statsUrl),
+  }));
+
+  const privateNotes = [];
+  if (report.privateNotes && String(report.privateNotes.text || '').trim()) {
+    privateNotes.push({ title: 'Private notes', text: report.privateNotes.text, private: true });
+  }
+
+  return {
+    title: `Scouting: ${matchup(game)}`,
+    subtitle: [d.long, game.homeAway].filter(Boolean).join(' · '),
+    notes: [...notes, ...privateNotes],
+    players,
+    plays: (report.plays || []).map((p) => ({ ...(p.play || {}), name: p.name || p.play?.name || 'Untitled play' })),
+  };
+}
+
+function scoutSection(model) {
+  const section = el('section', 'print-scout');
+
+  const head = el('header', 'print-head');
+  head.append(el('h1', null, model.title));
+  if (model.subtitle) head.append(el('p', 'print-meta', model.subtitle));
+  section.append(head);
+
+  const players = el('div', 'print-notes print-scout-players');
+  players.append(el('h2', null, 'Key players'));
+  if (model.players.length === 0) {
+    players.append(el('p', null, 'None listed.'));
+  } else {
+    const list = el('ul');
+    for (const p of model.players) {
+      const li = el('li');
+      li.append(el('strong', null, p.title));
+      if (p.blurb) li.append(el('p', null, p.blurb));
+      if (p.stats) li.append(el('p', 'print-scout-link', `Stats: ${p.stats}`));
+      list.append(li);
+    }
+    players.append(list);
+  }
+
+  for (const n of model.notes.filter((x) => !x.private)) {
+    const block = el('div', 'print-notes');
+    block.append(el('h2', null, n.title));
+    block.append(el('p', null, n.text));
+    section.append(block);
+  }
+  section.append(players);
+  for (const n of model.notes.filter((x) => x.private)) {
+    const block = el('div', 'print-notes print-scout-private');
+    block.append(el('h2', null, `${n.title} (only you)`));
+    block.append(el('p', null, n.text));
+    section.append(block);
+  }
+
+  if (model.plays.length) {
+    const contents = el('div', 'print-notes');
+    contents.append(el('h2', null, 'Their plays'));
+    const ol = el('ol', 'print-contents');
+    for (const play of model.plays) ol.append(el('li', null, play.name));
+    contents.append(ol);
+    section.append(contents);
+  }
+  return section;
+}
+
+/**
+ * One opponent's scouting report as a PDF: the report on the first page, then
+ * each of their plays on its own page, drawn exactly as in the playbook PDF.
+ *
+ * @param {Object} report  the scoutReport reply, as shown on the page
+ * @param {Object} draw    renderers with no lineup: their 1 is not our 1
+ */
+export function printScoutReport(report, draw) {
+  const model = scoutPrintModel(report);
+  const root = printRoot();
+  root.append(scoutSection(model));
+  for (const play of model.plays) root.append(playSection(play, draw, { startOnNewPage: true }));
   return present(root);
 }
