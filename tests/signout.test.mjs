@@ -27,7 +27,7 @@ const DAY = 24 * HOUR;
 
 test('check accepts a token of any role and reports it', () => {
   const ctx = ctxWith();
-  assert.deepEqual(ctx.fns.handleCheck({ token: ctx.site }), { ok: true, valid: true, role: 'site' });
+  assert.deepEqual(ctx.fns.handleCheck({ token: ctx.site }), { ok: true, valid: true, role: 'site', features: [] });
   assert.equal(ctx.fns.handleCheck({ token: ctx.viewer }).role, 'viewer');
   assert.equal(ctx.fns.handleCheck({ token: 'junk' }).valid, false);
 });

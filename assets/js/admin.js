@@ -327,4 +327,67 @@ export async function mountAdminPage(host) {
   const lede = globalThis.document?.getElementById('signin-days');
   if (lede) lede.textContent = `${days} day${days === 1 ? '' : 's'}`;
   renderSignIns(host, result.data.signIns || [], result.data.active, days);
+  renderReleases(host, result.data.releases);
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature releases                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Each staged feature: what it is called here and the property that moves it. */
+export const RELEASES = {
+  scouting: { label: 'Scouting', property: 'RELEASE_SCOUTING' },
+};
+
+const STAGE_TEXT = {
+  admin: 'Admin only',
+  coaches: 'Admin + coaches',
+  everyone: 'Everyone (admin, coaches, players)',
+};
+
+/**
+ * The rows of the releases card, from what the script reported. A feature the
+ * script did not mention is left out: an older script has no stages to show.
+ */
+export function releaseRows(releases) {
+  if (!releases || typeof releases !== 'object') return [];
+  return Object.keys(RELEASES)
+    .filter((key) => typeof releases[key] === 'string')
+    .map((key) => ({
+      key,
+      label: RELEASES[key].label,
+      property: RELEASES[key].property,
+      stage: releases[key],
+      text: STAGE_TEXT[releases[key]] || STAGE_TEXT.admin,
+    }));
+}
+
+/**
+ * Read-only on purpose. Moving a stage is a Script Property change — one place,
+ * checked by the script on every request — not a button that a stolen admin
+ * session could press.
+ */
+function renderReleases(host, releases) {
+  const rows = releaseRows(releases);
+  if (rows.length === 0) return;
+
+  const card = el('section', { class: 'card' });
+  card.append(el('h2', { text: 'Feature releases' }));
+  const table = el('table');
+  const head = el('tr');
+  for (const h of ['Feature', 'Open to', 'Script Property']) head.append(el('th', { text: h }));
+  table.append(el('thead', {}, head));
+  const body = el('tbody');
+  for (const r of rows) {
+    const tr = el('tr');
+    tr.append(el('td', { text: r.label }), el('td', { text: r.text }), el('td', {}, el('code', { text: r.property })));
+    body.append(tr);
+  }
+  table.append(body);
+  card.append(el('div', { class: 'table-scroll' }, table));
+  card.append(el('p', {
+    class: 'small muted',
+    text: 'To change one: in the Apps Script editor, Project Settings → Script Properties, set it to admin, coaches or everyone. It takes effect on the next page load — no new deployment.',
+  }));
+  host.prepend(card);
 }

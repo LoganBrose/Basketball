@@ -26,6 +26,16 @@
  *   ADMIN_HOURS     how long an admin session lasts         (default 24)
  *   SIGNIN_DAYS     how far back the admin sign-in list goes (default 30)
  *
+ * Feature releases — who a new feature is open to. Change the value and it
+ * applies on the next request; no new deployment is needed:
+ *
+ *   RELEASE_SCOUTING  admin | coaches | everyone   (default: admin)
+ *                     Anything else, or unset, means admin: a typo must
+ *                     never open a feature up. checkSetup warns about one.
+ *
+ * The admin playbook has no release setting. It is the admin's alone and the
+ * script refuses it to every other token.
+ *
  * Written by the script itself — do not set it by hand:
  *
  *   SESSION_EPOCH   bumped by the admin's "Sign everyone out" button. It is
@@ -93,6 +103,7 @@ function doPost(e) {
       case 'plays': return json(handlePlays(body));
       case 'savePlay': return json(handleSavePlay(body));
       case 'deletePlay': return json(handleDeletePlay(body));
+      case 'movePlay': return json(handleMovePlay(body));
       case 'check': return json(handleCheck(body));
       case 'signOutAll': return json(handleSignOutAll(body));
       default: return json({ ok: false, reason: 'unknown_action' });
@@ -180,6 +191,7 @@ function handleSignIn(body) {
       ok: true, name: name, role: 'viewer',
       token: makeToken('viewer', name, viewerUntil),
       expiresAt: viewerUntil,   // so the browser asks again when the token stops working
+      features: featuresFor({ ok: true, role: 'viewer', name: name }),
     };
   }
 
@@ -190,6 +202,7 @@ function handleSignIn(body) {
     name: name,
     role: okAdmin ? 'admin' : 'site',
     token: makeToken('site', name, siteExpiry()),
+    features: featuresFor({ ok: true, role: okAdmin ? 'admin' : 'site', name: name }),
   };
   if (okAdmin) out.adminToken = makeToken('admin', name, adminExpiry());
   return out;
@@ -243,6 +256,7 @@ function handleSignIns(body) {
     signIns: readSignIns(),
     active: readActiveSessions(),
     days: numberProp('SIGNIN_DAYS', 30),
+    releases: releaseStages(),
   };
 }
 
@@ -258,7 +272,12 @@ function handleSignIns(body) {
 function handleCheck(body) {
   var site = rosterChecked(verifyToken(body.token));
   var out = { ok: true, valid: site.ok, role: site.role };
-  if (body.adminToken) out.adminValid = verifyToken(body.adminToken, 'admin').ok;
+  var admin = body.adminToken ? verifyToken(body.adminToken, 'admin') : null;
+  if (admin) out.adminValid = admin.ok;
+  // What this browser may see, from the strongest token that still works.
+  // Sent on every check, so moving a release stage reaches open browsers on
+  // their next page load without anyone signing in again.
+  if (site.ok) out.features = featuresFor(admin && admin.ok ? admin : site);
   return out;
 }
 
@@ -296,6 +315,68 @@ function handleSignOutAll(body) {
     token: makeToken('site', admin.name, siteExpiry()),
     adminToken: makeToken('admin', admin.name, adminExpiry()),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature releases                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Each staged feature and the Script Property that says who it is open to.
+ *
+ * The admin playbook is deliberately absent: it is never released, so there is
+ * no property that could open it by mistake.
+ */
+var RELEASE_PROPS = { scouting: 'RELEASE_SCOUTING' };
+
+/** Which token roles each stage admits. The admin is in every one. */
+var STAGE_ROLES = {
+  admin: ['admin'],
+  coaches: ['admin', 'site'],
+  everyone: ['admin', 'site', 'viewer'],
+};
+
+/** Every feature the page may be told about, in a stable order. */
+var FEATURE_NAMES = ['adminPlaybook', 'scouting'];
+
+/**
+ * The stage a feature is at. Unset, blank or misspelled is 'admin': a typo in
+ * a Script Property must close a feature, never open it.
+ */
+function stageOf(feature) {
+  var key = RELEASE_PROPS[feature];
+  if (!key) return 'admin';
+  var value = optionalProp(key).trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(STAGE_ROLES, value) ? value : 'admin';
+}
+
+/** Is a feature open to this verified token? `who` is a verifyToken result. */
+function released(feature, who) {
+  if (!who || !who.ok) return false;
+  if (feature === 'adminPlaybook') return who.role === 'admin';
+  if (!RELEASE_PROPS[feature]) return false;
+  return STAGE_ROLES[stageOf(feature)].indexOf(who.role) !== -1;
+}
+
+/** The features this token may use. The page builds its links from this. */
+function featuresFor(who) {
+  return FEATURE_NAMES.filter(function (f) { return released(f, who); });
+}
+
+/** Every staged feature and its current stage, for the admin page. */
+function releaseStages() {
+  var out = {};
+  for (var f in RELEASE_PROPS) out[f] = stageOf(f);
+  return out;
+}
+
+/**
+ * The refusal for a feature this token may not use. It is word for word the
+ * answer to an action that does not exist, so the reply cannot be used to
+ * learn that the feature is there.
+ */
+function notReleased() {
+  return { ok: false, reason: 'unknown_action' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,11 +432,19 @@ function handleData(body) {
 }
 
 /* ------------------------------------------------------------------ */
-/* The team playbook                                                   */
+/* The team playbook and the admin playbook                            */
 /* ------------------------------------------------------------------ */
 
 var PLAYS_SHEET = 'Plays';
+var ADMIN_PLAYS_SHEET = 'AdminPlays';
 var PLAYS_HEADERS = ['Id', 'Slug', 'Playbook', 'Name', 'Updated', 'UpdatedBy', 'JSON'];
+
+/**
+ * The two sheet playbooks. Same columns, same code; only who may touch them
+ * differs. `team` is what any request without a `book` means, so a browser
+ * that predates the admin playbook keeps working unchanged.
+ */
+var PLAY_BOOKS = { team: PLAYS_SHEET, admin: ADMIN_PLAYS_SHEET };
 
 /**
  * A Google Sheets cell holds 50,000 characters. Refusing at 45,000 with a
@@ -364,31 +453,110 @@ var PLAYS_HEADERS = ['Id', 'Slug', 'Playbook', 'Name', 'Updated', 'UpdatedBy', '
  */
 var MAX_PLAY_CHARS = 45000;
 
-function playsSheet() {
-  var ss = SpreadsheetApp.openById(prop('LOG_SHEET_ID'));
-  var sheet = ss.getSheetByName(PLAYS_SHEET);
+function logSpreadsheet() {
+  return SpreadsheetApp.openById(prop('LOG_SHEET_ID'));
+}
+
+/**
+ * The named tab, created with its header row if it does not exist yet.
+ *
+ * An existing tab is returned exactly as it is — never cleared, never given a
+ * second header row. checkSetup reports a header that has drifted; it does not
+ * fix it, because the rows underneath are someone's data.
+ */
+function ensureTab(ss, name, headers) {
+  var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet(PLAYS_SHEET);
-    sheet.appendRow(PLAYS_HEADERS);
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
     sheet.setFrozenRows(1);
   }
   return sheet;
 }
 
+/** True when a tab's first row starts with exactly these headers. */
+function headersMatch(sheet, headers) {
+  var first = sheet.getDataRange().getDisplayValues()[0] || [];
+  for (var i = 0; i < headers.length; i++) {
+    if (String(first[i] || '').trim() !== headers[i]) return false;
+  }
+  return true;
+}
+
 /**
- * Every play, for any signed-in coach or viewer.
+ * Text that a person typed, made safe to put in a cell.
  *
- * Reading takes a site (or viewer) token so the playbook works on a phone with
- * the team password. Writing takes a site or admin token — see handleSavePlay.
- * This is the only action a viewer token is good for.
+ * Sheets treats a value starting with = + - or @ as a formula even when it is
+ * written by a script. A coach typing `=IMPORTXML(...)` into a play name would
+ * otherwise run that formula in the admin's spreadsheet the next time it is
+ * opened. A leading apostrophe stores it as plain text; Sheets hides the
+ * apostrophe, so getDisplayValues() hands back exactly what was typed.
+ */
+function cellText(value) {
+  var text = String(value == null ? '' : value);
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+/** 'team', 'admin', or null for anything else. A missing book is the team's. */
+function bookOf(body) {
+  var book = body.book == null || body.book === '' ? 'team' : String(body.book);
+  return Object.prototype.hasOwnProperty.call(PLAY_BOOKS, book) ? book : null;
+}
+
+function playsSheet(book) {
+  return ensureTab(logSpreadsheet(), PLAY_BOOKS[book || 'team'], PLAYS_HEADERS);
+}
+
+/**
+ * Who may read a book. The team playbook: any coach, the admin, or a viewer
+ * still on the roster. The admin playbook: the admin and nobody else.
+ */
+function bookReader(book, token) {
+  if (book === 'admin') return verifyToken(token, 'admin');
+  var site = verifyToken(token, 'site');
+  if (site.ok) return site;
+  var admin = verifyToken(token, 'admin');
+  if (admin.ok) return admin;
+  return rosterChecked(verifyToken(token, 'viewer'));
+}
+
+/**
+ * Who may change a book. The team playbook: any coach (a site token) or the
+ * admin; a view-only token is refused. The admin playbook: the admin only.
+ */
+function bookWriter(book, token) {
+  var admin = verifyToken(token, 'admin');
+  if (admin.ok || book === 'admin') return admin;
+  return verifyToken(token, 'site');
+}
+
+/**
+ * The refusal for a book this token may not use. For the admin playbook it is
+ * the same answer as an action that does not exist, so a coach probing the
+ * endpoint learns nothing about it.
+ */
+function bookRefusal(book) {
+  return book === 'admin' ? notReleased() : { ok: false, reason: 'auth' };
+}
+
+/**
+ * Every play in one book.
+ *
+ * Reading the team playbook takes a site (or viewer) token, so it works on a
+ * phone with the team password. Reading the admin playbook takes an admin
+ * token. This is the only action a viewer token is good for.
  */
 function handlePlays(body) {
-  var site = verifyToken(body.token, 'site');
-  var admin = verifyToken(body.token, 'admin');
-  var viewer = rosterChecked(verifyToken(body.token, 'viewer'));
-  if (!site.ok && !admin.ok && !viewer.ok) return { ok: false, reason: 'auth' };
+  var book = bookOf(body);
+  if (!book) return { ok: false, reason: 'bad_request' };
+  if (!bookReader(book, body.token).ok) return bookRefusal(book);
 
-  var values = playsSheet().getDataRange().getDisplayValues();
+  return { ok: true, book: book, plays: readPlayRows(playsSheet(book)) };
+}
+
+/** A sheet's rows as plays. One unreadable row must not take the whole book down. */
+function readPlayRows(sheet) {
+  var values = sheet.getDataRange().getDisplayValues();
   var plays = [];
 
   for (var i = 1; i < values.length; i++) {
@@ -399,7 +567,7 @@ function handlePlays(body) {
     try {
       play = JSON.parse(row[6]);
     } catch (err) {
-      continue;   // one unreadable row must not take the whole playbook down
+      continue;
     }
 
     plays.push({
@@ -412,28 +580,18 @@ function handlePlays(body) {
       play: play,
     });
   }
-
-  return { ok: true, plays: plays };
+  return plays;
 }
 
 /**
- * Who may change the team playbook: any coach (a site token) or the admin.
- * A view-only token is refused — viewers read the playbook and nothing else.
- */
-function playWriter(token) {
-  var admin = verifyToken(token, 'admin');
-  if (admin.ok) return admin;
-  return verifyToken(token, 'site');
-}
-
-/**
- * Add or replace one play. Any signed-in coach or the admin; never a viewer.
- * The name on the token is recorded as `updatedBy`, so the sheet shows who
- * published each play.
+ * Add or replace one play. The name on the token is recorded as `updatedBy`,
+ * so the sheet shows who saved each play.
  */
 function handleSavePlay(body) {
-  var writer = playWriter(body.token);
-  if (!writer.ok) return { ok: false, reason: 'auth' };
+  var book = bookOf(body);
+  if (!book) return { ok: false, reason: 'bad_request' };
+  var writer = bookWriter(book, body.token);
+  if (!writer.ok) return bookRefusal(book);
 
   var play = body.play;
   if (!play || !play.id) return { ok: false, reason: 'bad_request' };
@@ -446,40 +604,85 @@ function handleSavePlay(body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sheet = playsSheet();
-    var row = [
-      play.id,
-      String(play.slug || ''),
-      String(play.playbook || 'general'),
-      String(play.name || 'Untitled play'),
-      new Date(),
-      writer.name,
-      text,
-    ];
-
-    var rowIndex = findPlayRow(sheet, play.id);
-    if (rowIndex === -1) sheet.appendRow(row);
-    else sheet.getRange(rowIndex, 1, 1, PLAYS_HEADERS.length).setValues([row]);
-
-    return { ok: true, id: play.id, updatedBy: writer.name };
+    writePlayRow(playsSheet(book), play, text, writer.name);
+    return { ok: true, id: play.id, book: book, updatedBy: writer.name };
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Remove one play from the team playbook. Any signed-in coach or the admin. */
+/** Insert or overwrite the row for `play.id`. Must be called holding the lock. */
+function writePlayRow(sheet, play, text, name) {
+  var row = [
+    cellText(play.id),
+    cellText(play.slug || ''),
+    cellText(play.playbook || 'general'),
+    cellText(play.name || 'Untitled play'),
+    new Date(),
+    cellText(name),
+    text,
+  ];
+
+  var rowIndex = findPlayRow(sheet, play.id);
+  if (rowIndex === -1) sheet.appendRow(row);
+  else sheet.getRange(rowIndex, 1, 1, PLAYS_HEADERS.length).setValues([row]);
+}
+
+/** Remove one play from a book. */
 function handleDeletePlay(body) {
-  if (!playWriter(body.token).ok) return { ok: false, reason: 'auth' };
+  var book = bookOf(body);
+  if (!book) return { ok: false, reason: 'bad_request' };
+  if (!bookWriter(book, body.token).ok) return bookRefusal(book);
   if (!body.id) return { ok: false, reason: 'bad_request' };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sheet = playsSheet();
+    var sheet = playsSheet(book);
     var rowIndex = findPlayRow(sheet, body.id);
     // Already gone is the outcome that was asked for, not an error.
     if (rowIndex !== -1) sheet.deleteRow(rowIndex);
-    return { ok: true, id: body.id };
+    return { ok: true, id: body.id, book: book };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Move one play between the team playbook and the admin playbook. Admin only,
+ * because one side is always the admin playbook.
+ *
+ * Copy then delete, under a single lock: if the write fails the source row is
+ * untouched, so the worst a failure can do is leave the play where it was —
+ * never in neither place.
+ */
+function handleMovePlay(body) {
+  var admin = verifyToken(body.token, 'admin');
+  if (!admin.ok) return notReleased();
+
+  var from = bookOf({ book: body.from });
+  var to = bookOf({ book: body.to });
+  if (!from || !to || from === to || !body.id) return { ok: false, reason: 'bad_request' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var source = playsSheet(from);
+    var rowIndex = findPlayRow(source, body.id);
+    if (rowIndex === -1) return { ok: false, reason: 'not_found' };
+
+    var text = source.getDataRange().getDisplayValues()[rowIndex - 1][6];
+    var play;
+    try {
+      play = JSON.parse(text);
+    } catch (err) {
+      return { ok: false, reason: 'bad_request' };
+    }
+    play.id = String(body.id);
+
+    writePlayRow(playsSheet(to), play, JSON.stringify(play), admin.name);
+    source.deleteRow(rowIndex);
+    return { ok: true, id: play.id, from: from, to: to, updatedBy: admin.name };
   } finally {
     lock.releaseLock();
   }
@@ -763,14 +966,7 @@ function lockedOut() {
 /* ------------------------------------------------------------------ */
 
 function logSheet() {
-  var ss = SpreadsheetApp.openById(prop('LOG_SHEET_ID'));
-  var sheet = ss.getSheetByName(SIGNIN_SHEET);
-  if (!sheet) {
-    sheet = ss.insertSheet(SIGNIN_SHEET);
-    sheet.appendRow(SIGNIN_HEADERS);
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
+  return ensureTab(logSpreadsheet(), SIGNIN_SHEET, SIGNIN_HEADERS);
 }
 
 /**
@@ -934,9 +1130,29 @@ function checkSetup() {
     return;
   }
 
-  logSheet();
-  playsSheet();
-  Logger.log('Log sheet is reachable; the "%s" and "%s" tabs exist.', SIGNIN_SHEET, PLAYS_SHEET);
+  // Every tab the script writes to, created if missing. An existing tab is
+  // never cleared or rewritten; one whose header row has drifted is reported.
+  var log = logSpreadsheet();
+  var tabs = [[SIGNIN_SHEET, SIGNIN_HEADERS], [PLAYS_SHEET, PLAYS_HEADERS], [ADMIN_PLAYS_SHEET, PLAYS_HEADERS]];
+  for (var t = 0; t < tabs.length; t++) {
+    var existed = Boolean(log.getSheetByName(tabs[t][0]));
+    var sheet = ensureTab(log, tabs[t][0], tabs[t][1]);
+    if (!existed) Logger.log('Created the "%s" tab.', tabs[t][0]);
+    else if (!headersMatch(sheet, tabs[t][1])) {
+      Logger.log('WARNING: the "%s" tab\'s first row should be: %s. It was left as it is.',
+        tabs[t][0], tabs[t][1].join(', '));
+    }
+  }
+  Logger.log('Log sheet is reachable; its tabs: %s.', tabs.map(function (x) { return x[0]; }).join(', '));
+
+  for (var f in RELEASE_PROPS) {
+    var raw = optionalProp(RELEASE_PROPS[f]).trim();
+    Logger.log('%s is released to: %s.', f, stageOf(f));
+    if (raw !== '' && raw.toLowerCase() !== stageOf(f)) {
+      Logger.log('WARNING: %s is "%s", which is not admin, coaches or everyone, so it is treated as admin.',
+        RELEASE_PROPS[f], raw);
+    }
+  }
 
   var stats = SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
   var names = Object.keys(TAB_ROLES);

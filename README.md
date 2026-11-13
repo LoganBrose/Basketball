@@ -21,9 +21,9 @@ you type rows  ─▶  StatsLog tab  ──Apps Script──▶  index.html + st
 Stats are typed straight into the **StatsLog** tab. There is no Google Form. The site reads three
 tabs, joins them by ID in your browser, and **never writes anything**.
 
-With sign-in configured, the sheet is **not published** and the Apps Script is the only route to it.
-With `gate.url` empty, the site reads the published CSV exactly as it always did — the two paths end
-in the same parser, so the numbers cannot differ between them.
+Sign-in is configured and the stats sheet is **no longer published**: the Apps Script is the only
+route to it. The published-CSV route described below is only a fallback for a copy of the site with
+`gate.url` left empty. Both paths end in the same parser, so the numbers cannot differ between them.
 
 ---
 
@@ -55,8 +55,9 @@ Notes:
 
 ### 2. Publish the sheet — *only if you are not using sign-in*
 
-**Skip this section entirely if you have set up [Sign-in](#sign-in).** With `gate.url` configured the
-sheet must **not** be published; the Apps Script reads it directly, and that is the whole point.
+**This site uses sign-in, and the stats sheet is already unpublished, so skip this section.** It is
+kept for a copy of the site with `gate.url` empty. With sign-in configured the sheet must **not** be
+published; the Apps Script reads it directly, and that is the whole point.
 
 **File → Share → Publish to web.**
 
@@ -73,8 +74,9 @@ refresh. That is a real reason to prefer it beyond the privacy.
 
 ### 3. Point the site at your sheet — `assets/js/config.js`
 
-Already filled in. Two routes are configured and tried in order, so one failing doesn't take the
-site down:
+**With sign-in on (as it is now) these values are not used**: every read goes through the Apps
+Script. They only matter if `gate.url` is emptied. In that case two routes are tried in order, so one
+failing doesn't take the site down:
 
 ```js
 fileId: '1RRmiDGS5j4IWGc5B6BnC7aNXMzZLbtOTSLaIKkqIc8s'   // tabs addressed by name
@@ -269,6 +271,28 @@ or remove frames.
 A device play that's already published is badged **Published**, or **Edited since publishing** when
 your copy is newer, and offers **Remove local copy**.
 
+### The admin playbook
+
+An admin sees a third list, **Admin playbook**, under *Team playbook*. It is for plays you are not
+ready to share: it is saved in the sheet (the `AdminPlays` tab of the log spreadsheet), so it is the
+same on every device you sign in on as admin, and nobody else can read it.
+
+| From → to | How |
+|---|---|
+| This device → admin playbook | **Save to admin playbook** on the play's card. The copy on this device is kept; the card then says *In admin playbook*, or *Edited since saving* once you change it. Press it again to update. |
+| Admin playbook → this device | Tap the play, or **Copy to this device**. |
+| Admin playbook → team playbook | **Move to team playbook**. Everyone sees it on their next refresh, and it comes out of the admin playbook. |
+| Team playbook → admin playbook | **Move to admin playbook**, after a confirm. It comes **off** the team playbook for everyone. |
+| Remove | **Remove from admin playbook**. A copy on this device is kept. |
+
+A move is one request that copies and then deletes inside the script, under a lock. If anything
+fails, the play is left where it was. A play keeps its id everywhere, so moving it onto a play
+already there replaces that play rather than duplicating it.
+
+The admin playbook has **no release setting**: it is the admin's alone. Coaches and viewers never
+get the card (it is built by JavaScript for an admin only, like the Stats link), and the script
+answers their tokens exactly as if the admin playbook did not exist.
+
 ### The old `plays/` folder
 
 The team playbook used to be JSON files under `plays/`. That folder has been deleted, so with
@@ -328,9 +352,11 @@ did not check itself.
 | | Protected by | Real? |
 |---|---|---|
 | The pages | the popup | No — bypassable |
-| Stats data | the admin password, checked in Apps Script | **Yes**, once the sheet is unpublished |
+| Stats data | the admin password, checked in Apps Script | **Yes** — the sheet is unpublished |
 | Player names | the site password, checked in Apps Script | **Yes**, same |
 | Team playbook | the site password to read **and** to change; the viewer password to read only | **Yes** |
+| Admin playbook | the admin password only, to read and to change | **Yes** |
+| Staged features (Scouting) | the release stage in `RELEASE_SCOUTING`, checked in Apps Script | **Yes** |
 
 Two more things worth knowing:
 
@@ -368,9 +394,13 @@ Optional:
 | `VIEWER_HOURS` | how long a view-only sign-in lasts, in hours (default 24) |
 | `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
 | `SIGNIN_DAYS` | how many days back the admin sign-in list goes (default 30) |
+| `RELEASE_SCOUTING` | who Scouting is open to: `admin`, `coaches` or `everyone` (default `admin`). See [Releasing a feature](#releasing-a-feature). |
 
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.
+It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays`)
+with its header row. **It never clears or rewrites a tab that already exists**; if one's header row
+has drifted, it logs a warning and leaves it alone.
 
 **5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
 "Anyone" is about the *endpoint*, not your data — the script still refuses every request that
@@ -379,7 +409,7 @@ doesn't carry a password or a token it signed. Copy the web app URL.
 **6. Paste that URL** into `gate.url` in `assets/js/config.js`. Leave it empty and the whole gate
 stays off and the site behaves exactly as before.
 
-**7. Stop publishing the stats sheet.** In the stats spreadsheet: **File → Share → Publish to web →
+**7. Stop publishing the stats sheet** (already done for this site). In the stats spreadsheet: **File → Share → Publish to web →
 Stop publishing**. Do this *last*, and only once step 6 is live and you have confirmed the stats page
 loads behind the admin password — until then the site is still reading the published CSV, and
 unpublishing early just makes it fall back to sample data.
@@ -400,6 +430,34 @@ if you need everyone out now, press **Sign everyone out** on `admin.html` (see b
 `TOKEN_SECRET` does the same thing by hand. Changing `ADMIN_NAME` invalidates outstanding admin
 sessions on its own.
 
+### Releasing a feature
+
+New features launch **for the admin login only**, so you can try them first. Each one has a
+release setting with three stages:
+
+| Value | Who sees it |
+|---|---|
+| `admin` | you only (the default) |
+| `coaches` | you and everyone signed in with the site password |
+| `everyone` | you, coaches, and players signed in with the view-only password |
+
+**To move a feature to the next stage:** Apps Script editor → **Project Settings → Script
+Properties** → set the property (for Scouting, `RELEASE_SCOUTING`) to the new value → **Save**.
+
+- **No new deployment and no code change.** The script reads the property on every request.
+- Each person sees the change on their **next page load**: every page checks its sign-in with the
+  script in the background, and that check now also says which features the login has.
+- **To roll back**, set it back to `admin`. It goes away just as quickly.
+- **A blank, missing or misspelled value means `admin`.** A typo closes a feature; it never opens
+  one. Run `checkSetup` to confirm: it logs each feature's stage and warns about a value it doesn't
+  understand.
+- The admin page has a **Feature releases** card showing each stage. It is read-only on purpose, so
+  a stolen admin session can't open a feature to everyone.
+
+The script enforces this, not the page. A login a feature isn't released to gets the same reply as
+an action that doesn't exist, and the page doesn't build the feature's link or sections, the same way
+the Stats pages are hidden from coaches.
+
 ### Which password opens what
 
 | | Viewer password | Site password | Admin password |
@@ -407,6 +465,8 @@ sessions on its own.
 | **Look through** the team playbook, step through plays, open video links | yes | yes | yes |
 | Draw and edit plays on this device, the lineup names | **no** | yes | yes |
 | **Publish to or remove from** the team playbook | **no** | **yes** | **yes** |
+| The **admin playbook**: see it, save to it, move plays in and out | **no** | **not shown to exist** | **yes** |
+| **Scouting** | only at stage `everyone` | from stage `coaches` | yes |
 | **Stats page, box scores, season tiles** | **no** | **not shown to exist** | **yes** |
 | The sign-in log at `admin.html`, who is signed in now | **no** | **not shown to exist** | yes |
 | **Sign everyone out** | **no** | **no** | **yes** |
@@ -457,9 +517,10 @@ they just stop being listed. Set `SIGNIN_DAYS` to change the window; the page he
 
 ### Video links on plays
 
-Each play has a **Video link** field in *This play*. Paste a YouTube link (any `http`/`https` link
-works) and a **▶ Watch video** button appears under it, opening the video in a new tab. The link is
-saved with the play, travels with it when it is published to the team playbook, and is printed
+Each play has a **Video link** field in *This play*. Paste a YouTube link and a **▶ Watch video**
+button appears under it. A YouTube video **plays in a player on the page**, so nobody leaves the
+playbook; close it with ✕ or Escape. Any other `http`/`https` link still opens in a new tab. The link
+is saved with the play, travels with it when it is published to the team playbook, and is printed
 under the notes in PDF exports. Anything that is not an `http`/`https` link is ignored.
 
 **The sign-in popup is the only way to become admin.** Enter the admin name and the admin password
@@ -601,7 +662,8 @@ scripts. There are no dependencies and nothing is bundled — the site's files s
 | `assets/js/playbook.js` | the diagram editor |
 | `assets/js/gate.js` | the sign-in popup and session — pure parts tested |
 | `assets/js/admin.js` | the admin prompt and the sign-in log |
-| `assets/js/teamplays.js` | the team playbook in the sheet |
+| `assets/js/teamplays.js` | the team playbook and the admin playbook in the sheet |
+| `assets/js/features.js` | which staged features this login may see — pure and tested |
 | `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 

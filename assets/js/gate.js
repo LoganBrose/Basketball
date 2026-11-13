@@ -12,6 +12,7 @@
  */
 
 import { CONFIG } from './config.js';
+import { writeFeatures, clearFeatures, featuresFrom } from './features.js';
 
 /* The first statement in this module's body, and it has to stay that way.
  *
@@ -156,6 +157,23 @@ export function sessionValid(session, maxAgeMs, now = Date.now()) {
   // even inside the general limit.
   if (typeof session.until === 'number' && session.until <= now) return false;
   return now - session.at < maxAgeMs;
+}
+
+/**
+ * The strongest token this browser holds: the admin's while that session lasts,
+ * otherwise the site (or viewer) one. '' when signed out. The script works out
+ * the role from the token itself, so sending the strongest one is always right.
+ */
+export function bestToken(gateCfg = CONFIG.gate) {
+  const admin = readAdminSession();
+  if (sessionValid(admin, adminMaxAge(gateCfg))) return admin.token;
+  const site = readSession();
+  return sessionValid(site, siteMaxAge(gateCfg)) ? site.token : '';
+}
+
+/** The admin token alone, or '' — for the actions only an admin may call. */
+export function adminToken(now = Date.now()) {
+  return hasAdminSession(now) ? readAdminSession().token : '';
 }
 
 export const siteMaxAge = (gateCfg) => (Number(gateCfg?.days) || 30) * DAY;
@@ -335,17 +353,35 @@ export async function verifyStoredSession(gate = CONFIG.gate, opts = {}) {
   const admin = readAdminSession();
   if (hasAdminSession() && admin?.token) payload.adminToken = admin.token;
 
-  const verdict = sessionVerdict(await callScript(gate.url, payload, opts));
+  const result = await callScript(gate.url, payload, opts);
+  const verdict = sessionVerdict(result);
 
   if (verdict === 'signout') {
     clearSession();
     clearAdminSession();
+    clearFeatures();
     globalThis.location?.reload();
   } else if (verdict === 'drop-admin') {
     clearAdminSession();
+    clearFeatures();   // the next check fills in what a coach has
     globalThis.location?.reload();
+  } else {
+    // A release stage may have moved since the last page. Only re-render when
+    // the list actually changed, so an ordinary page load does nothing extra.
+    const features = featuresFrom(result);
+    if (features && writeFeatures(features)) announceFeatures();
   }
   return verdict;
+}
+
+/**
+ * Tell the page the feature list changed, so it can add (or drop) what the
+ * script now allows without a reload. Pages that care listen for bb:features.
+ */
+function announceFeatures() {
+  if (typeof document === 'undefined') return;
+  renderNav();
+  document.dispatchEvent(new CustomEvent('bb:features'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -403,6 +439,8 @@ function renderNav() {
   // land as Home, Stats, Playbook — reading order, not insertion order.
   const lead = links.filter(([href]) => href !== 'admin.html').reverse();
   for (const [href, label] of [...lead, ...links.filter(([h]) => h === 'admin.html')]) {
+    // Safe to run again when the feature list changes: a link is built once.
+    if (nav.querySelector(`a[href="${href}"]`)) continue;
     const a = el('a', { text: label, attrs: { href } });
     if (href === here) a.setAttribute('aria-current', 'page');
     if (href === 'admin.html') nav.append(a);
@@ -432,6 +470,7 @@ function renderSignedIn(name) {
   out.addEventListener('click', () => {
     clearSession();
     clearAdminSession();
+    clearFeatures();
     globalThis.location.reload();
   });
 
@@ -523,6 +562,9 @@ function buildOverlay(gate, onDone) {
       if (result.data.adminToken) {
         saveAdminSession(signedInAs, result.data.adminToken);
       }
+      // Which staged features this login may see. A script from before
+      // features existed sends none, and none is what the page then shows.
+      writeFeatures(Array.isArray(result.data.features) ? result.data.features : []);
       overlay.remove();
       reveal();
       renderSignedIn(signedInAs);
@@ -590,6 +632,7 @@ export function mount() {
   }
 
   clearSession();
+  clearFeatures();
   const { overlay, nameInput } = buildOverlay(gate);
   document.body.append(overlay);
   nameInput.focus();

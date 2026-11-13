@@ -148,3 +148,50 @@ test('a coach and the admin can publish; a viewer and a signed-out browser canno
     else globalThis.localStorage = previous;
   }
 });
+
+/* ---------------------------------------------------------------- */
+/* The admin playbook, from the page's side                          */
+/* ---------------------------------------------------------------- */
+
+test('save messages name the book they are about', () => {
+  assert.match(saveMessage({ ok: false, error: 'x' }, 'admin'), /admin playbook/);
+  assert.match(saveMessage({ ok: true, data: { ok: false, reason: 'too_big' } }, 'admin'), /admin playbook/);
+  // The admin playbook answers a lapsed admin session like a missing action.
+  assert.match(saveMessage({ ok: true, data: { ok: false, reason: 'unknown_action' } }, 'admin'), /Sign in again/);
+  assert.match(saveMessage({ ok: true, data: { ok: false, reason: 'not_found' } }, 'admin'), /no longer/);
+});
+
+test('the admin playbook is offered only to an admin session the script has confirmed', async () => {
+  const { canUseAdminBook } = await import('../assets/js/teamplays.js');
+  const now = Date.now();
+  const coach = { name: 'Casey Jones', token: 'tok', role: 'site', at: now };
+  const admin = { name: 'Logan Brose', token: 'tok', at: now, until: now + 60_000 };
+  const told = JSON.stringify({ list: ['adminPlaybook'], at: now });
+
+  const cases = [
+    // [site, admin, features, expected, why]
+    [coach, null, told, false, 'a coach, even with a forged feature entry'],
+    [coach, admin, null, false, 'an admin before the script has said so (site deployed before script)'],
+    [coach, admin, told, true, 'an admin the script confirmed'],
+    [coach, { ...admin, until: now - 1 }, told, false, 'an admin session that lapsed'],
+  ];
+
+  const previous = globalThis.localStorage;
+  try {
+    for (const [site, adm, features, expected, why] of cases) {
+      const store = new Map();
+      globalThis.localStorage = {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+      };
+      if (site) store.set('bb.gate.v1', JSON.stringify(site));
+      if (adm) store.set('bb.admin.v1', JSON.stringify(adm));
+      if (features) store.set('bb.features.v1', features);
+      assert.equal(canUseAdminBook(), expected, why);
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previous;
+  }
+});
