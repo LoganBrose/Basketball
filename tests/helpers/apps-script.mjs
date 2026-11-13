@@ -186,13 +186,18 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
  * these tests exist to catch.
  */
 export function tabFor(values) {
-  const asText = (v) => (v instanceof Date ? v.toISOString() : String(v == null ? '' : v));
+  // A cell can be { value, shown } to say what Sheets displays for it, as a
+  // date cell formatted "11/16" does; otherwise the value is its own display.
+  const isCell = (v) => v && typeof v === 'object' && !(v instanceof Date) && 'value' in v;
+  const asText = (v) => (isCell(v) ? String(v.shown)
+    : v instanceof Date ? v.toISOString() : String(v == null ? '' : v));
+  const asValue = (v) => (isCell(v) ? v.value : v);
 
   return {
     rows: values,
     getDataRange: () => ({
       getDisplayValues: () => values.map((r) => r.map(asText)),
-      getValues: () => values.map((r) => r.slice()),
+      getValues: () => values.map((r) => r.map(asValue)),
     }),
     appendRow: (r) => values.push(r.slice()),
     setFrozenRows: () => {},
