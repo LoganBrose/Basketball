@@ -357,10 +357,7 @@ export async function verifyStoredSession(gate = CONFIG.gate, opts = {}) {
   const verdict = sessionVerdict(result);
 
   if (verdict === 'signout') {
-    clearSession();
-    clearAdminSession();
-    clearFeatures();
-    globalThis.location?.reload();
+    signOutHere();
   } else if (verdict === 'drop-admin') {
     clearAdminSession();
     clearFeatures();   // the next check fills in what a coach has
@@ -372,6 +369,56 @@ export async function verifyStoredSession(gate = CONFIG.gate, opts = {}) {
     if (features && writeFeatures(features)) announceFeatures();
   }
   return verdict;
+}
+
+/**
+ * Forget every sign-in on this device and show the sign-in popup. The reload
+ * also drops anything the page was holding in memory, such as an open play.
+ */
+export function signOutHere() {
+  clearSession();
+  clearAdminSession();
+  clearFeatures();
+  globalThis.location?.reload();
+}
+
+/**
+ * Keep asking the script whether this browser's sign-in still works: every
+ * `everyMs`, and when the person comes back to the tab (at most once a
+ * `minGapMs`). A sign-in cancelled with "Sign everyone out" then ends an open
+ * page within minutes, without waiting for a refresh.
+ *
+ * Only the player view of the playbook uses this; nobody else's page changes.
+ *
+ * @returns {{check: Function, stop: Function}} `check` runs one throttled check
+ *   now; both are exposed so the throttle can be tested.
+ */
+export function watchSession({
+  everyMs = 5 * 60 * 1000,
+  minGapMs = 60 * 1000,
+  now = () => Date.now(),
+  verify = () => verifyStoredSession(),
+  win = globalThis,
+  doc = globalThis.document,
+} = {}) {
+  let last = now();
+  const check = () => {
+    const t = now();
+    if (t - last < minGapMs) return false;
+    last = t;
+    verify();
+    return true;
+  };
+  const timer = win.setInterval?.(check, everyMs);
+  const onVisible = () => { if (doc?.visibilityState === 'visible') check(); };
+  doc?.addEventListener?.('visibilitychange', onVisible);
+  return {
+    check,
+    stop: () => {
+      win.clearInterval?.(timer);
+      doc?.removeEventListener?.('visibilitychange', onVisible);
+    },
+  };
 }
 
 /**
@@ -499,12 +546,7 @@ function renderSignedIn(name) {
   who.append(el('span', { class: 'gate-name', text: name }));
 
   const out = el('button', { class: 'linkish', text: 'Sign out', attrs: { type: 'button' } });
-  out.addEventListener('click', () => {
-    clearSession();
-    clearAdminSession();
-    clearFeatures();
-    globalThis.location.reload();
-  });
+  out.addEventListener('click', signOutHere);
 
   who.append(document.createTextNode(' · '));
   who.append(out);

@@ -1264,3 +1264,7 @@ details.scout-group .panel-body { font-size: inherit; }
   .print-scout-private { border: 0.75pt solid #999; padding: 4mm; }
 }
 .scout-report-actions { display: flex; justify-content: flex-end; margin: 4px 0 2px; }
+
+/* A player's play loading: the court dims until it arrives. */
+.court-wrap.loading { opacity: 0.45; transition: opacity 0.15s; }
+#vb-status { margin: 6px 0 0; }

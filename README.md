@@ -597,6 +597,14 @@ The hiding is done by the page, but the limit is real: the script gives a viewer
 and the only thing that token can do is read the team playbook. It cannot read the roster or stats,
 and it cannot save or delete anything.
 
+**Players load one play at a time.** A player's list holds the play names only; the script doesn't
+send them the diagrams. Each play is downloaded when they tap it, every time, even one they opened a
+minute earlier. So when you press **Sign everyone out**, or take a name off the Players tab, that
+player's **very next tap** is refused and they get the sign-in popup. A player's page also re-checks
+the sign-in **every 5 minutes and whenever they come back to the tab**, so even the play left on
+screen goes away within minutes without them tapping anything. Each tap takes a second or two;
+coaches and the admin still get the whole playbook at once and switch instantly.
+
 A view-only sign-in lasts **1 day**, after which the sign-in popup appears again. Set
 `VIEWER_HOURS` to change that.
 
@@ -706,8 +714,15 @@ Pressing it writes a new `SESSION_EPOCH` Script Property. That value is part of 
 signed with, so every token issued before the press stops working at once: coaches, viewers and any
 other admin session. Every page checks its stored sign-in with the script in the background when it
 opens, so the next page anyone loads shows them the sign-in popup. A page already open stays usable
-until it next talks to the script. You are handed fresh tokens and stay signed in. The press is
-recorded in the log.
+until it next talks to the script:
+
+- **Players** are cut off on their next tap in the playbook, and within 5 minutes even without one
+  (see *Players load one play at a time* above).
+- **Coaches** keep whatever is already on their screen, including the team plays that page loaded,
+  until they refresh or do something that needs the script, such as publishing. Plays they copied
+  to their own device stay there: this button can't reach into anyone's browser storage.
+
+You are handed fresh tokens and stay signed in. The press is recorded in the log.
 
 `SESSION_EPOCH` is managed by the script; don't set it yourself. Deleting it only re-validates
 tokens signed before the very first press.
