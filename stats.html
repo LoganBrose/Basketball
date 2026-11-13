@@ -33,6 +33,10 @@ window.__gateFailsafe = setTimeout(function () {
   document.documentElement.classList.remove('gated');
 }, 3000);
 </script>
+<script>
+/* Apply the header theme switch before paint (see assets/js/theme.js). */
+try { var t = localStorage.getItem('bb.theme.v1'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
 <link rel="stylesheet" href="assets/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏀</text></svg>">
 </head>
@@ -117,6 +121,7 @@ window.__gateFailsafe = setTimeout(function () {
 
 
 <script type="module" src="assets/js/gate.js"></script>
+<script type="module" src="assets/js/theme.js"></script>
 <script type="module" src="assets/js/stats.js"></script>
 </body>
 </html>
