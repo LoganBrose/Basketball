@@ -17,7 +17,7 @@ function ctxWith(props = {}) {
   // Whatever the scouting stage, the admin playbook stays the admin's.
   const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw', RELEASE_SCOUTING: 'everyone', ...props });
   ctx.site = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  const admin = ctx.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = ctx.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   ctx.adminSite = admin.token;
   ctx.admin = admin.adminToken;
   ctx.viewer = ctx.fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).token;
@@ -35,11 +35,11 @@ test('the admin saves to and reads from the admin playbook', () => {
   const ctx = ctxWith();
   const saved = ctx.fns.handleSavePlay({ token: ctx.admin, book: 'admin', play: play('a') });
   assert.equal(saved.ok, true);
-  assert.equal(saved.updatedBy, 'Logan Brose');
+  assert.equal(saved.updatedBy, 'Alex Admin');
 
   const res = ctx.fns.handlePlays({ token: ctx.admin, book: 'admin' });
   assert.deepEqual(ids(res), ['a']);
-  assert.equal(res.plays[0].updatedBy, 'Logan Brose');
+  assert.equal(res.plays[0].updatedBy, 'Alex Admin');
 });
 
 test('admin plays live in their own tab and never show up in the team playbook', () => {
@@ -102,7 +102,7 @@ test('admin -> team moves the play: it is in the team playbook and gone from the
   const team = ctx.fns.handlePlays({ token: ctx.site });
   assert.deepEqual(ids(team), ['a']);
   assert.equal(team.plays[0].play.name, 'Horns', 'the play itself survives the move');
-  assert.equal(team.plays[0].updatedBy, 'Logan Brose');
+  assert.equal(team.plays[0].updatedBy, 'Alex Admin');
 });
 
 test('team -> admin takes it off the team playbook', () => {

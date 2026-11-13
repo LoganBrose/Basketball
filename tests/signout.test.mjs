@@ -12,7 +12,7 @@ function ctxWith() {
   const { fns } = ctx;
   ctx.site = fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
   ctx.viewer = fns.handleSignIn({ name: 'Pat Lee', password: 'view-pw' }).token;
-  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   ctx.adminSite = admin.token;
   ctx.admin = admin.adminToken;
   return ctx;
@@ -74,7 +74,7 @@ test('every outstanding token stops working, of every role', () => {
 test('the admin who pressed it is handed fresh tokens and stays in', () => {
   const ctx = ctxWith();
   const out = ctx.fns.handleSignOutAll({ token: ctx.admin });
-  assert.equal(out.name, 'Logan Brose');
+  assert.equal(out.name, 'Alex Admin');
   assert.equal(ctx.fns.verifyToken(out.token, 'site').ok, true);
   assert.equal(ctx.fns.verifyToken(out.adminToken, 'admin').ok, true);
   assert.equal(ctx.fns.handleSignIns({ token: out.adminToken }).ok, true);
@@ -101,7 +101,7 @@ test('it is logged, takes the lock and releases it', () => {
   const ctx = ctxWith();
   ctx.fns.handleSignOutAll({ token: ctx.admin, page: 'admin' });
   const last = ctx.rows[ctx.rows.length - 1];
-  assert.equal(last[1], 'Logan Brose');
+  assert.equal(last[1], 'Alex Admin');
   assert.equal(last[4], 'signout-all');
   assert.equal(ctx.locks.taken, ctx.locks.released);
   assert.ok(ctx.locks.taken >= 1);
@@ -123,11 +123,11 @@ const names = (list) => list.map((p) => p.name).sort();
 test('everyone with a valid sign-in is listed, with their access', () => {
   const ctx = ctxWith();
   const active = ctx.fns.readActiveSessions();
-  assert.deepEqual(names(active), ['Casey Jones', 'Logan Brose', 'Pat Lee']);
+  assert.deepEqual(names(active), ['Alex Admin', 'Casey Jones', 'Pat Lee']);
   const role = (n) => active.find((p) => p.name === n).role;
   assert.equal(role('Casey Jones'), 'coach');
   assert.equal(role('Pat Lee'), 'viewer');
-  assert.equal(role('Logan Brose'), 'admin');
+  assert.equal(role('Alex Admin'), 'admin');
 });
 
 test('failed attempts are not listed', () => {
@@ -154,23 +154,23 @@ test('a sign-in drops off when its token would have expired', () => {
 
 test('an admin whose admin part has lapsed is still listed as a coach', () => {
   const ctx = ctxWith();
-  const logan = ctx.fns.readActiveSessions(Date.now() + 2 * DAY).find((p) => p.name === 'Logan Brose');
-  assert.equal(logan.role, 'coach');
+  const adminEntry = ctx.fns.readActiveSessions(Date.now() + 2 * DAY).find((p) => p.name === 'Alex Admin');
+  assert.equal(adminEntry.role, 'coach');
 });
 
 test('after Sign everyone out only the admin who pressed it is listed', () => {
   const ctx = ctxWith();
   ctx.fns.handleSignOutAll({ token: ctx.admin });
   const active = ctx.fns.readActiveSessions();
-  assert.deepEqual(names(active), ['Logan Brose']);
+  assert.deepEqual(names(active), ['Alex Admin']);
   assert.equal(active[0].role, 'admin');
 
   ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' });
-  assert.deepEqual(names(ctx.fns.readActiveSessions()), ['Casey Jones', 'Logan Brose']);
+  assert.deepEqual(names(ctx.fns.readActiveSessions()), ['Alex Admin', 'Casey Jones']);
 });
 
 test('the admin log includes who is signed in now', () => {
   const ctx = ctxWith();
   const out = ctx.fns.handleSignIns({ token: ctx.admin });
-  assert.deepEqual(names(out.active), ['Casey Jones', 'Logan Brose', 'Pat Lee']);
+  assert.deepEqual(names(out.active), ['Alex Admin', 'Casey Jones', 'Pat Lee']);
 });

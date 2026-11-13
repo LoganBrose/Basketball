@@ -11,7 +11,7 @@ import { loadCodeGs, post } from './helpers/apps-script.mjs';
 function ctxWith(props = {}) {
   const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw', ...props });
   ctx.site = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  const admin = ctx.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = ctx.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   ctx.adminSite = admin.token;
   ctx.admin = admin.adminToken;
   ctx.viewer = ctx.fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).token;
@@ -94,7 +94,7 @@ test('a failed token and an unknown feature are never released', () => {
 
 test('sign-in tells each login which features it has', () => {
   const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
-  assert.deepEqual(ctx.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).features,
+  assert.deepEqual(ctx.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' }).features,
     ['adminPlaybook', 'scouting']);
   assert.deepEqual(ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).features, []);
   assert.deepEqual(ctx.fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).features, []);

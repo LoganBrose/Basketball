@@ -35,7 +35,7 @@ test('the viewer password signs in with a viewer token and nothing more', () => 
 test('the team and admin passwords say which role they got', () => {
   const { fns } = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
   assert.equal(fns.handleSignIn({ name: 'Coach', password: 'team-pw' }).role, 'site');
-  assert.equal(fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).role, 'admin');
+  assert.equal(fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' }).role, 'admin');
 });
 
 test('with VIEWER_PASSWORD unset there is no viewer login, even for an empty password', () => {
@@ -52,7 +52,7 @@ test('if the viewer password matches the team password, the stronger role wins',
 test('a viewer token reads the team playbook and is refused everything else', () => {
   const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
   const { fns } = ctx;
-  const admin = fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  const admin = fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
   fns.handleSavePlay({ token: admin, play: play('a') });
 
   const viewer = fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).token;

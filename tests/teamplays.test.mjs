@@ -15,7 +15,7 @@ const row = (id, over = {}) => ({
   playbook: 'general',
   name: `Play ${id}`,
   updated: '9/16/2026 10:00:00',
-  updatedBy: 'Logan Brose',
+  updatedBy: 'Alex Admin',
   play: {
     id, name: `Play ${id}`, playbook: 'general',
     frames: [{ tokens: [{ kind: 'offense', label: '1', x: 25, y: 27 }], arrows: [], texts: [] }],
@@ -120,7 +120,7 @@ test('a coach and the admin can publish; a viewer and a signed-out browser canno
   const now = Date.now();
   const coach = { name: 'Casey Jones', token: 'tok', role: 'site', at: now };
   const viewer = { name: 'Pat', token: 'tok', role: 'viewer', at: now, until: now + 60_000 };
-  const admin = { name: 'Logan Brose', token: 'tok', at: now, until: now + 60_000 };
+  const admin = { name: 'Alex Admin', token: 'tok', at: now, until: now + 60_000 };
 
   const cases = [
     // [site session, admin session, canPublish, why]
@@ -165,7 +165,7 @@ test('the admin playbook is offered only to an admin session the script has conf
   const { canUseAdminBook } = await import('../assets/js/teamplays.js');
   const now = Date.now();
   const coach = { name: 'Casey Jones', token: 'tok', role: 'site', at: now };
-  const admin = { name: 'Logan Brose', token: 'tok', at: now, until: now + 60_000 };
+  const admin = { name: 'Alex Admin', token: 'tok', at: now, until: now + 60_000 };
   const told = JSON.stringify({ list: ['adminPlaybook'], at: now });
 
   const cases = [

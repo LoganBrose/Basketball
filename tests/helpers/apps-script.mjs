@@ -30,7 +30,7 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
   const properties = {
     SITE_PASSWORD: 'team-pw',
     ADMIN_PASSWORD: 'admin-pw',
-    ADMIN_NAME: 'Logan Brose',
+    ADMIN_NAME: 'Alex Admin',
     LOG_SHEET_ID: 'log-id',
     STATS_SHEET_ID: 'stats-id',
     TOKEN_SECRET: 'a-long-random-secret-value',

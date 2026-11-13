@@ -18,7 +18,7 @@ const plays = [{ id: 'opp-1', name: 'Box Set', play: { id: 'opp-1', name: 'Box S
 
 const adminReport = {
   ok: true, role: 'admin', canEdit: true, game, players, plays,
-  overview: note('Press after makes.'), privateNotes: note('Their coach ran our sets.', 'Logan'),
+  overview: note('Press after makes.'), privateNotes: note('Their coach ran our sets.', 'Alex'),
 };
 
 test('the heading names the opponent, the day and home or away', () => {

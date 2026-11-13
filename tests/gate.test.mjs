@@ -19,7 +19,7 @@ const DAY = 24 * HOUR;
 /* ---------------------------------------------------------------- */
 
 test('names are trimmed, collapsed and capped at 60', () => {
-  assert.equal(cleanName('  Logan   Brose '), 'Logan Brose');
+  assert.equal(cleanName('  Alex   Admin '), 'Alex Admin');
   assert.equal(cleanName('Casey\n\tJones'), 'Casey Jones');
   assert.equal(cleanName('x'.repeat(200)).length, 60);
 });
@@ -207,7 +207,7 @@ test('people are summarised with successes and failures kept apart', () => {
   // Ten failures and no sign-ins must not read as a regular visitor.
   const people = peopleFrom([
     row('Casey Jones'), row('Casey Jones'), row('Guesser', 'failed:site'),
-    row('Guesser', 'failed:site'), row('Logan Brose', 'admin'),
+    row('Guesser', 'failed:site'), row('Alex Admin', 'admin'),
   ]);
 
   const casey = people.find((p) => p.name === 'Casey Jones');
@@ -259,7 +259,7 @@ test('search covers every column someone might look in', () => {
 test('the browser strips a pipe from a name, exactly as the script does', () => {
   // "|" separates the fields inside a token payload. If the two sides disagreed
   // about what a name is, the name sent would not be the name signed.
-  assert.equal(cleanName('Logan|Brose'), 'LoganBrose');
+  assert.equal(cleanName('Alex|Admin'), 'AlexAdmin');
   assert.equal(cleanName('a | b'), 'a b');
   assert.equal(cleanName('|'), '');
   assert.equal(cleanName('||  Casey  ||'), 'Casey');
@@ -293,14 +293,14 @@ async function withStoredAdmin(value, run) {
 
 test('a stamped, unexpired admin session is an admin', async () => {
   await withStoredAdmin(
-    { name: 'Logan Brose', token: 'tok', at: Date.now(), until: Date.now() + 60_000 },
+    { name: 'Alex Admin', token: 'tok', at: Date.now(), until: Date.now() + 60_000 },
     (hasAdminSession) => assert.equal(hasAdminSession(), true),
   );
 });
 
 test('an expired admin session is not', async () => {
   await withStoredAdmin(
-    { name: 'Logan Brose', token: 'tok', at: Date.now() - 1000, until: Date.now() - 1 },
+    { name: 'Alex Admin', token: 'tok', at: Date.now() - 1000, until: Date.now() - 1 },
     (hasAdminSession) => assert.equal(hasAdminSession(), false),
   );
 });
@@ -325,7 +325,7 @@ test('a session written before `until` existed is not trusted', async () => {
   // The old shape had only `at`. Treating it as valid would hand admin to a
   // browser holding a session from before this rule existed.
   await withStoredAdmin(
-    { name: 'Logan Brose', token: 'tok', at: Date.now() },
+    { name: 'Alex Admin', token: 'tok', at: Date.now() },
     (hasAdminSession) => assert.equal(hasAdminSession(), false),
   );
 });
@@ -337,7 +337,7 @@ test('a session written before `until` existed is not trusted', async () => {
 test('only a valid session stamped viewer, with no admin session, is a viewer', async () => {
   const gateOn = { url: 'https://script.google.com/macros/s/x/exec', days: 30 };
   const site = (role) => ({ name: 'P', token: 'tok', at: Date.now(), ...(role ? { role } : {}) });
-  const admin = { name: 'Logan Brose', token: 'tok', at: Date.now(), until: Date.now() + 60_000 };
+  const admin = { name: 'Alex Admin', token: 'tok', at: Date.now(), until: Date.now() + 60_000 };
 
   const cases = [
     [site('viewer'), undefined, gateOn, true, 'a viewer'],
@@ -396,8 +396,8 @@ test('a network failure or an older script never signs anyone out', () => {
 
 test('Sign everyone out reads as an event, not as a sign-in', () => {
   const rows = [
-    { name: 'Logan Brose', result: 'signout-all', at: 'b' },
-    { name: 'Logan Brose', result: 'admin', at: 'a' },
+    { name: 'Alex Admin', result: 'signout-all', at: 'b' },
+    { name: 'Alex Admin', result: 'admin', at: 'a' },
   ];
   assert.equal(resultLabel(rows[0]), 'Signed everyone out');
   assert.equal(peopleFrom(rows)[0].signIns, 1);
@@ -427,11 +427,11 @@ const reply = (body) => async () => ({ ok: true, text: async () => JSON.stringif
 
 test('after signing everyone out, this browser keeps the fresh tokens', () => withStore(async (store) => {
   const now = Date.now();
-  store.set('bb.admin.v1', JSON.stringify({ name: 'Logan Brose', token: 'old-admin', at: now, until: now + HOUR }));
-  store.set('bb.gate.v1', JSON.stringify({ name: 'Logan Brose', token: 'old-site', role: 'site', at: now }));
+  store.set('bb.admin.v1', JSON.stringify({ name: 'Alex Admin', token: 'old-admin', at: now, until: now + HOUR }));
+  store.set('bb.gate.v1', JSON.stringify({ name: 'Alex Admin', token: 'old-site', role: 'site', at: now }));
 
   const msg = await signOutEveryone({
-    fetchImpl: reply({ ok: true, name: 'Logan Brose', token: 'new-site', adminToken: 'new-admin' }),
+    fetchImpl: reply({ ok: true, name: 'Alex Admin', token: 'new-site', adminToken: 'new-admin' }),
   });
   assert.equal(msg, '');
   assert.equal(JSON.parse(store.get('bb.gate.v1')).token, 'new-site');
@@ -440,7 +440,7 @@ test('after signing everyone out, this browser keeps the fresh tokens', () => wi
 
 test('a failed sign-everyone-out keeps the old session and says why', () => withStore(async (store) => {
   const now = Date.now();
-  const admin = JSON.stringify({ name: 'Logan Brose', token: 'old-admin', at: now, until: now + HOUR });
+  const admin = JSON.stringify({ name: 'Alex Admin', token: 'old-admin', at: now, until: now + HOUR });
   store.set('bb.admin.v1', admin);
 
   assert.match(await signOutEveryone({ fetchImpl: reply({ ok: false, reason: 'unknown_action' }) }), /new version/);
