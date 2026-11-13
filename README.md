@@ -361,13 +361,12 @@ feature](#releasing-a-feature)). It starts at **admin only**.
 | Section | What it is | Admin | Coaches | Players |
 |---|---|---|---|---|
 | **About *opponent*** | Notes on the team: kept for **every** game against them | read + edit | read + edit | — |
-| **This game** | Notes for this game only | read + edit | read + edit | — |
 | **Key players** | Number, name, position, a short blurb, and a **View stats** button | read + edit | read + edit | **read** |
 | **Private notes** | Your own notes on the opponent | read + edit | — | — |
 | **Their plays** | The opponent's plays, drawn in the play builder. Step through them and press ▶ Play, as with ours | read + remove | read + remove | **read** |
 
 **Scouting belongs to the opponent, not the game.** Play North twice and the second report already
-has North's key players, overview and private notes. Only *This game* starts empty. Opponents are
+has North's key players, overview, private notes and their plays. There are no per-game notes. Opponents are
 matched by their name on the Games tab, ignoring capital letters and extra spaces, so `North` and
 `north ` are the same team. **Renaming an opponent on the Games tab** (say `North` → `North HS`)
 starts it with an empty report; rename it back and the old one returns. Two different schools typed
@@ -432,7 +431,6 @@ ever sent a game's ID, date, opponent and home/away — never a score.
 |---|---|---|
 | `Opponents` | `OpponentKey`, `Opponent`, `Overview`, `Updated`, `UpdatedBy` | opponent |
 | `ScoutPlayers` | `Id`, `OpponentKey`, `Number`, `Name`, `Position`, `Blurb`, `StatsUrl`, `Order`, `Updated`, `UpdatedBy` | key player |
-| `ScoutGameNotes` | `GameId`, `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | game |
 | `ScoutPrivate` | `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | opponent — **admin only** |
 | `OpponentPlays` | `Id`, `OpponentKey`, `Opponent`, `SourceId`, `GameId`, `Name`, `Updated`, `UpdatedBy`, `JSON` | opponent play |
 
@@ -442,6 +440,10 @@ when it was first saved, and `JSON` is the play itself. Private notes have a tab
 their own that only an admin request ever opens, so they can't leak through another tab's reply. A
 key player's `Order` sorts the list (lower first; ties go by number). It isn't on the page yet, but
 you can set it in the sheet. Each opponent holds up to 30 key players.
+
+**`ScoutGameNotes`** held the old per-game *This game* notes, which have been removed. If the tab is
+in your log spreadsheet, nothing reads or writes it any more. Keep it for reference or delete it by
+hand; `checkSetup` leaves it alone and no longer creates it.
 
 You can read and tidy these tabs by hand. Keep the header row and the `OpponentKey` values as they
 are, or rows will stop matching their opponent.

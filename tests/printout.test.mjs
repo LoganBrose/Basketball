@@ -18,7 +18,7 @@ const plays = [{ id: 'opp-1', name: 'Box Set', play: { id: 'opp-1', name: 'Box S
 
 const adminReport = {
   ok: true, role: 'admin', canEdit: true, game, players, plays,
-  overview: note('Press after makes.'), gameNotes: note('Senior night.'), privateNotes: note('Their coach ran our sets.', 'Logan'),
+  overview: note('Press after makes.'), privateNotes: note('Their coach ran our sets.', 'Logan'),
 };
 
 test('the heading names the opponent, the day and home or away', () => {
@@ -29,15 +29,20 @@ test('the heading names the opponent, the day and home or away', () => {
 
 test('the admin\'s PDF carries every section, private notes last', () => {
   const m = scoutPrintModel(adminReport);
-  assert.deepEqual(m.notes.map((n) => n.title), ['About North', 'This game', 'Private notes']);
-  assert.equal(m.notes[2].private, true);
+  assert.deepEqual(m.notes.map((n) => n.title), ['About North', 'Private notes']);
+  assert.equal(m.notes[1].private, true);
+});
+
+test('there is no "This game" section on paper, even from an older script that still sends one', () => {
+  const m = scoutPrintModel({ ...adminReport, gameNotes: note('Senior night.') });
+  assert.doesNotMatch(JSON.stringify(m), /This game|Senior/);
 });
 
 test('a coach\'s PDF has no private notes, because a coach\'s report never had any', () => {
   const { privateNotes, ...coach } = adminReport;
   void privateNotes;
   const m = scoutPrintModel({ ...coach, role: 'coach' });
-  assert.deepEqual(m.notes.map((n) => n.title), ['About North', 'This game']);
+  assert.deepEqual(m.notes.map((n) => n.title), ['About North']);
   assert.doesNotMatch(JSON.stringify(m), /our sets/);
 });
 
@@ -49,7 +54,7 @@ test('a player\'s PDF is key players and their plays, nothing else', () => {
 });
 
 test('empty notes stay off the paper', () => {
-  const m = scoutPrintModel({ ...adminReport, overview: note(''), gameNotes: note('   ') });
+  const m = scoutPrintModel({ ...adminReport, overview: note('   ') });
   assert.deepEqual(m.notes.map((n) => n.title), ['Private notes']);
 });
 

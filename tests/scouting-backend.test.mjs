@@ -51,7 +51,6 @@ const ids = (games) => games.map((g) => g.gameId);
 function seed(ctx, gameId = 'G03') {
   ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId, player: { number: '23', name: 'Jay Tall', position: 'C', blurb: 'Lefty. Rolls hard.', statsUrl: 'https://www.maxpreps.com/x' } });
   ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId, kind: 'overview', text: 'Full-court press after makes.' });
-  ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId, kind: 'game', text: 'Senior night.' });
   ctx.fns.handleSaveScoutNotes({ token: ctx.admin, gameId, kind: 'private', text: 'Their coach ran our old sets.' });
 }
 
@@ -167,7 +166,6 @@ test('the admin gets everything, private notes included', () => {
   seed(ctx);
   const r = ctx.fns.handleScoutReport({ token: ctx.admin, gameId: 'G03' });
   assert.equal(r.overview.text, 'Full-court press after makes.');
-  assert.equal(r.gameNotes.text, 'Senior night.');
   assert.equal(r.privateNotes.text, 'Their coach ran our old sets.');
   assert.equal(r.privateNotes.updatedBy, 'Logan Brose');
   assert.equal(r.players[0].updatedBy, 'Casey Jones');
@@ -178,7 +176,6 @@ test('a coach gets everything except the private notes', () => {
   seed(ctx);
   const r = ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' });
   assert.equal(r.overview.text, 'Full-court press after makes.');
-  assert.equal(r.gameNotes.text, 'Senior night.');
   assert.equal('privateNotes' in r, false);
   assert.doesNotMatch(JSON.stringify(r), /old sets/);
 });
@@ -190,7 +187,7 @@ test('a viewer gets the game and the key players, and no notes of any kind', () 
   assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'players', 'plays', 'role']);
   assert.deepEqual(Object.keys(r.players[0]).sort(), ['blurb', 'id', 'name', 'number', 'position', 'statsUrl']);
   assert.equal(r.players[0].statsUrl, 'https://www.maxpreps.com/x');
-  assert.doesNotMatch(JSON.stringify(r), /press|Senior|old sets|Casey/);
+  assert.doesNotMatch(JSON.stringify(r), /press|old sets|Casey/);
 });
 
 test('a viewer asking for a game outside the window is told it does not exist', () => {
@@ -206,7 +203,7 @@ test('a viewer asking for a game outside the window is told it does not exist', 
 /* Belongs to the opponent                                           */
 /* ---------------------------------------------------------------- */
 
-test('scouting carries over to every game against the same opponent; game notes do not', () => {
+test('scouting carries over to every game against the same opponent', () => {
   const ctx = ctxWith();
   seed(ctx, 'G01');   // saved against North on Nov 1
   const r = ctx.fns.handleScoutReport({ token: ctx.admin, gameId: 'G03' });   // "  north " on Nov 20
@@ -214,7 +211,30 @@ test('scouting carries over to every game against the same opponent; game notes 
   assert.equal(r.players[0].name, 'Jay Tall');
   assert.equal(r.overview.text, 'Full-court press after makes.');
   assert.equal(r.privateNotes.text, 'Their coach ran our old sets.');
-  assert.equal(r.gameNotes.text, '', 'game notes belong to G01');
+});
+
+test('there are no per-game notes any more, for anyone', () => {
+  const ctx = ctxWith();
+  seed(ctx);
+  for (const token of [ctx.admin, ctx.coach, ctx.viewer]) {
+    assert.equal('gameNotes' in ctx.fns.handleScoutReport({ token, gameId: 'G03' }), false);
+  }
+  assert.deepEqual(ctx.fns.handleSaveScoutNotes({ token: ctx.admin, gameId: 'G03', kind: 'game', text: 'x' }),
+    { ok: false, reason: 'bad_request' });
+  assert.equal(ctx.sheets.ScoutGameNotes, undefined, 'and no tab is created for them');
+});
+
+test('an old ScoutGameNotes tab is left exactly as it is', () => {
+  const ctx = ctxWith();
+  ctx.sheets.ScoutGameNotes = tabFor([
+    ['GameId', 'OpponentKey', 'Notes', 'Updated', 'UpdatedBy'],
+    ['G03', 'north', 'Senior night.', '', 'Casey Jones'],
+  ]);
+  const before = JSON.stringify(ctx.sheets.ScoutGameNotes.rows);
+  seed(ctx);
+  ctx.fns.checkSetup();
+  assert.equal(JSON.stringify(ctx.sheets.ScoutGameNotes.rows), before);
+  assert.doesNotMatch(JSON.stringify(ctx.fns.handleScoutReport({ token: ctx.admin, gameId: 'G03' })), /Senior/);
 });
 
 /* ---------------------------------------------------------------- */
@@ -229,6 +249,7 @@ test('viewers write nothing; coaches write everything but private notes', () => 
   assert.deepEqual(ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId: 'G02', kind: 'private', text: 'x' }), HIDDEN);
   assert.equal(ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId: 'G02', kind: 'overview', text: 'x' }).ok, true);
   assert.equal(ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId: 'G02', kind: 'weird', text: 'x' }).reason, 'bad_request');
+  assert.equal(ctx.fns.handleSaveScoutNotes({ token: ctx.coach, gameId: 'G02', kind: 'game', text: 'x' }).reason, 'bad_request');
 });
 
 test('a write names a game, and the script decides which opponent that is', () => {
@@ -332,7 +353,6 @@ test('checkSetup creates the scouting tabs with headers and never touches existi
   ctx.fns.checkSetup();
   assert.deepEqual(ctx.sheets.Opponents.rows[0], ['OpponentKey', 'Opponent', 'Overview', 'Updated', 'UpdatedBy']);
   assert.deepEqual(ctx.sheets.ScoutPlayers.rows[0], ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl', 'Order', 'Updated', 'UpdatedBy']);
-  assert.deepEqual(ctx.sheets.ScoutGameNotes.rows[0], ['GameId', 'OpponentKey', 'Notes', 'Updated', 'UpdatedBy']);
   assert.deepEqual(ctx.sheets.ScoutPrivate.rows[0], ['OpponentKey', 'Notes', 'Updated', 'UpdatedBy']);
 
   seed(ctx);

@@ -196,12 +196,6 @@ function renderReport(host, r) {
       hint: 'Kept for every game against them.',
     }));
   }
-  if (r.gameNotes) {
-    host.append(notesBlock(ctx, {
-      kind: 'game', title: 'This game', note: r.gameNotes,
-      hint: 'Only for this game.',
-    }));
-  }
 
   host.append(playersBlock(ctx, r.players || []));
 
@@ -282,7 +276,7 @@ function openInBuilder(p) {
   globalThis.location.href = `playbook.html?open=${encodeURIComponent(id)}`;
 }
 
-/** Overview, game notes or private notes: text, who saved it, and Edit. */
+/** Overview or private notes: text, who saved it, and Edit. */
 function notesBlock(ctx, { kind, title, note, hint, cls = '' }) {
   const block = el('section', { class: `scout-block ${cls}`.trim() });
   const head = el('div', { class: 'scout-block-head' }, el('h3', { text: title }));
