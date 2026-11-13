@@ -144,6 +144,23 @@ test('dates are read from real date cells and from typed text; unreadable ones a
   assert.equal(games.some((g) => g.gameId === 'EX1'), false, 'example rows are not games');
 });
 
+test('a date cell keeps its day whatever zone "today" is judged in', () => {
+  // G06 is midnight on Nov 16 in New York, the spreadsheet's zone. Read in
+  // Chicago (or a deployment still on an older project zone) it used to come
+  // out as 11pm on Nov 15.
+  for (const props of [{ TIME_ZONE: 'America/Chicago' }, { TIME_ZONE: 'America/Los_Angeles' }, {}]) {
+    const ctx = ctxWith('everyone', props);
+    assert.equal(ctx.fns.readGames().find((g) => g.gameId === 'G06').date, '2026-11-16', JSON.stringify(props));
+  }
+});
+
+test('with no TIME_ZONE, "today" follows the spreadsheet\'s zone, not the project\'s', () => {
+  const ctx = ctxWith();
+  ctx.spreadsheet.timeZone = 'Pacific/Auckland';   // the project zone in the harness is New York
+  ctx.clock.now = Date.parse('2026-11-13T12:00:00Z');   // 1am on Nov 14 in Auckland
+  assert.equal(ctx.fns.todayKey(), '2026-11-14');
+});
+
 test('no score ever leaves the script for anyone but through the admin stats route', () => {
   const ctx = ctxWith();
   seed(ctx, 'G03');
@@ -180,14 +197,21 @@ test('a coach gets everything except the private notes', () => {
   assert.doesNotMatch(JSON.stringify(r), /old sets/);
 });
 
-test('a viewer gets the game and the key players, and no notes of any kind', () => {
+test('a viewer gets the game, the overview text and the key players, and no private notes', () => {
   const ctx = ctxWith();
   seed(ctx);
   const r = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' });
-  assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'players', 'plays', 'role']);
+  assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'overview', 'players', 'plays', 'role']);
+  assert.deepEqual(r.overview, { text: 'Full-court press after makes.' }, 'the text only, not who saved it');
   assert.deepEqual(Object.keys(r.players[0]).sort(), ['blurb', 'id', 'name', 'number', 'position', 'statsUrl']);
   assert.equal(r.players[0].statsUrl, 'https://www.maxpreps.com/x');
-  assert.doesNotMatch(JSON.stringify(r), /press|old sets|Casey/);
+  assert.doesNotMatch(JSON.stringify(r), /old sets|Casey/);
+});
+
+test('a viewer with no overview saved gets an empty one', () => {
+  const ctx = ctxWith();
+  const r = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' });
+  assert.deepEqual(r.overview, { text: '' });
 });
 
 test('a viewer asking for a game outside the window is told it does not exist', () => {

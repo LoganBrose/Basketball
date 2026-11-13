@@ -820,8 +820,31 @@ function opponentKey(name) {
   return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * The zone "today" is judged in: TIME_ZONE if set, else the stats
+ * spreadsheet's own zone, else the script project's.
+ *
+ * The spreadsheet comes before the project because a deployed version keeps
+ * the project time zone it was deployed with, so a later change in Project
+ * Settings never reaches it, while the spreadsheet's is read live.
+ */
 function scoutTimeZone() {
-  return optionalProp('TIME_ZONE').trim() || Session.getScriptTimeZone();
+  return optionalProp('TIME_ZONE').trim() || statsTimeZone() || Session.getScriptTimeZone();
+}
+
+/** The stats spreadsheet's time zone (File → Settings), cached for 6 hours. */
+function statsTimeZone(ss) {
+  var cache = CacheService.getScriptCache();
+  var tz = cache.get('statsTz');
+  if (tz && !ss) return tz;
+  try {
+    var book = ss || SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
+    tz = book.getSpreadsheetTimeZone ? String(book.getSpreadsheetTimeZone() || '') : '';
+  } catch (e) {
+    tz = '';
+  }
+  if (tz) cache.put('statsTz', tz, 6 * 60 * 60);
+  return tz;
 }
 
 /** Today's date where the team is, as yyyy-MM-dd. */
@@ -839,12 +862,15 @@ function dayNumber(key) {
  * A Games date cell as yyyy-MM-dd, or '' when it can't be read.
  *
  * The raw value is tried first: Sheets hands a date cell over as a real Date,
- * whatever the spreadsheet's display format, and it is formatted in the team's
- * time zone. Text typed as M/D/YYYY or YYYY-MM-DD is the fallback.
+ * whatever the spreadsheet's display format. That Date is midnight in the
+ * spreadsheet's time zone, so it is read back in that same zone (`tz`), and
+ * the day matches the cell whatever TIME_ZONE or the project says. Formatted
+ * in any zone to the west, it would land on the evening before.
+ * Text typed as M/D/YYYY or YYYY-MM-DD is the fallback.
  */
-function gameDateKey(raw, shown) {
+function gameDateKey(raw, shown, tz) {
   if (Object.prototype.toString.call(raw) === '[object Date]' && isFinite(raw.getTime())) {
-    return Utilities.formatDate(raw, scoutTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(raw, tz || scoutTimeZone(), 'yyyy-MM-dd');
   }
   var text = String(shown == null ? '' : shown).trim();
   var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
@@ -870,7 +896,9 @@ function readGames() {
   var cached = cache.get('games');
   if (cached) return JSON.parse(cached);
 
-  var sheet = SpreadsheetApp.openById(prop('STATS_SHEET_ID')).getSheetByName('Games');
+  var book = SpreadsheetApp.openById(prop('STATS_SHEET_ID'));
+  var sheetTz = statsTimeZone(book);
+  var sheet = book.getSheetByName('Games');
   var range = sheet ? sheet.getDataRange() : null;
   var shown = range ? range.getDisplayValues() : [];
   var raw = range ? range.getValues() : [];
@@ -895,7 +923,7 @@ function readGames() {
       var id = String(shown[r][col.gameId] || '').trim();
       if (id === '' || /^ex/i.test(id)) continue;
       var opponent = String(shown[r][col.opponent] || '').replace(/\s+/g, ' ').trim();
-      var date = gameDateKey(raw[r] && raw[r][col.date], shown[r][col.date]);
+      var date = gameDateKey(raw[r] && raw[r][col.date], shown[r][col.date], sheetTz);
       if (opponent === '' || date === '') continue;
       var ha = col.homeAway === -1 ? '' : String(shown[r][col.homeAway] || '').trim().toLowerCase();
       games.push({
@@ -998,9 +1026,9 @@ function handleScoutGames(body) {
  * from whole rows, so a column added later is not sent until someone decides
  * who should see it.
  *
- *   viewer: the game, key players (number, name, position, blurb, stats link)
- *           and the opponent's plays
- *   coach:  + overview, who saved what
+ *   viewer: the game, the overview's text, key players (number, name,
+ *           position, blurb, stats link) and the opponent's plays
+ *   coach:  + who saved what
  *   admin:  + private notes
  */
 function handleScoutReport(body) {
@@ -1035,9 +1063,10 @@ function handleScoutReport(body) {
     plays: plays,
   };
 
-  if (editor) {
-    report.overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
-  }
+  // Everyone reads the overview; only editors learn who saved it, as with the
+  // key players above.
+  var overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
+  report.overview = editor ? overview : { text: overview.text };
   if (who.role === 'admin') {
     report.privateNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS), 0, game.opponentKey), 1);
   }
@@ -1780,8 +1809,10 @@ function checkSetup() {
   }
 
   CacheService.getScriptCache().remove('games');
-  Logger.log('Scouting dates use the %s time zone; today there is %s. %s game(s) on the Games tab.',
-    scoutTimeZone(), todayKey(), readGames().length);
+  CacheService.getScriptCache().remove('statsTz');
+  Logger.log('Game dates are read in the stats spreadsheet\'s time zone (%s). "Today" for scouting is ' +
+    'judged in %s; today there is %s. %s game(s) on the Games tab.',
+    statsTimeZone() || Session.getScriptTimeZone(), scoutTimeZone(), todayKey(), readGames().length);
 
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
   Logger.log('Viewer login is %s.', optionalProp('VIEWER_PASSWORD') ? 'ON' : 'off (VIEWER_PASSWORD not set)');

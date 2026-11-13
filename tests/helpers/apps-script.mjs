@@ -90,6 +90,8 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
     }),
   };
 
+  const spreadsheet = { timeZone: 'America/New_York' };
+
   const globals = {
     Utilities: {
       computeHmacSha256Signature: (msg, secret) =>
@@ -127,6 +129,8 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
 
     SpreadsheetApp: {
       openById: () => ({
+        // File → Settings → Time zone. Tests change it through ctx.spreadsheet.
+        getSpreadsheetTimeZone: () => spreadsheet.timeZone,
         getSheetByName: (name) => (name === 'SignIns' ? logTab : sheets[name] || null),
         insertSheet: (name) => (name === 'SignIns' ? logTab : (sheets[name] = tabFor([]))),
       }),
@@ -168,7 +172,7 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
 
   return {
     fns: factory(...names.map((n) => globals[n])),
-    rows, cache, locks, sheets, logged, clock, props: properties,
+    rows, cache, locks, sheets, logged, clock, props: properties, spreadsheet,
   };
 }
 

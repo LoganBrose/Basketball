@@ -46,9 +46,11 @@ test('a coach\'s PDF has no private notes, because a coach\'s report never had a
   assert.doesNotMatch(JSON.stringify(m), /our sets/);
 });
 
-test('a player\'s PDF is key players and their plays, nothing else', () => {
-  const m = scoutPrintModel({ ok: true, role: 'viewer', canEdit: false, game, players, plays });
-  assert.deepEqual(m.notes, []);
+test('a player\'s PDF is the overview, key players and their plays, nothing else', () => {
+  const m = scoutPrintModel({
+    ok: true, role: 'viewer', canEdit: false, game, players, plays, overview: { text: 'Press after makes.' },
+  });
+  assert.deepEqual(m.notes.map((n) => n.title), ['About North']);
   assert.equal(m.players.length, 2);
   assert.deepEqual(m.plays.map((p) => p.name), ['Box Set']);
 });
