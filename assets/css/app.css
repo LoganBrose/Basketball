@@ -610,7 +610,7 @@ code {
 .pb-side .field { margin-bottom: 10px; }
 .pb-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-input[type='text'], textarea {
+input[type='text'], input[type='url'], textarea {
   font: inherit;
   font-size: 0.92rem;
   padding: 8px 10px;
@@ -1176,3 +1176,61 @@ tr.flagged-row td { color: var(--flag); }
   :root:not([data-theme='light']) .play-action.danger { color: #fca5a5; }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Scouting                                                            */
+/* ------------------------------------------------------------------ */
+
+.btn.btn-small { padding: 4px 10px; font-size: 0.82rem; }
+
+.scout-page .field { margin-bottom: 10px; }
+
+.scout-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.scout-title { display: flex; flex-direction: column; min-width: 0; }
+.scout-title h2, .scout-title h3 { margin: 0; overflow-wrap: anywhere; }
+
+/* The date chip: "FRI / Nov 20". */
+.scout-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  line-height: 1.15;
+}
+.scout-day { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.scout-md { font-size: 0.92rem; font-weight: 700; white-space: nowrap; }
+
+.scout-next .scout-head { margin-bottom: 14px; }
+
+/* Other games: a tappable card that opens its report in place. */
+details.scout-game { padding: 0; }
+details.scout-game > summary { list-style: none; cursor: pointer; padding: 14px 18px; border-radius: var(--radius); }
+details.scout-game > summary::-webkit-details-marker { display: none; }
+details.scout-game > summary:hover { background: var(--surface-2); }
+details.scout-game[open] > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.scout-game > .scout-report { padding: 4px 18px 16px; }
+
+details.scout-group { margin-bottom: 18px; }
+details.scout-group .panel-body { font-size: inherit; }
+
+.scout-block { padding: 12px 0; border-top: 1px solid var(--border); }
+.scout-report > .scout-block:first-child { border-top: 0; }
+.scout-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.scout-block-head h3 { margin: 0 0 6px; font-size: 1rem; }
+.scout-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+
+.scout-private { background: var(--surface-2); border-radius: 8px; padding: 12px; border-top: 0; margin-top: 8px; }
+
+.scout-players { list-style: none; margin: 0; padding: 0; }
+.scout-player { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.scout-player:last-child { border-bottom: 0; }
+.scout-player-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.scout-player .play-actions { padding: 6px 0 0; }
+
+.scout-form { margin: 8px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.scout-form textarea { margin-bottom: 4px; }

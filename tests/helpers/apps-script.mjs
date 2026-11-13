@@ -26,7 +26,7 @@ const b64url = (buf) =>
  *   filled in for anything omitted.
  * @returns {{fns: Object, rows: Array, cache: Map, locks: Object, sheets: Object, props: Object}}
  */
-export function loadCodeGs(props = {}) {
+export function loadCodeGs(props = {}, { now = null } = {}) {
   const properties = {
     SITE_PASSWORD: 'team-pw',
     ADMIN_PASSWORD: 'admin-pw',
@@ -36,6 +36,21 @@ export function loadCodeGs(props = {}) {
     TOKEN_SECRET: 'a-long-random-secret-value',
     ...props,
   };
+
+  /**
+   * The script's clock. Leave `now` null for real time; set `clock.now` (ms)
+   * to pin "today" for the scouting date rules. Tokens are signed and checked
+   * against the same clock, so they stay valid when it moves.
+   */
+  const clock = { now };
+  const RealDate = Date;
+  class ScriptDate extends RealDate {
+    constructor(...args) {
+      if (args.length === 0 && clock.now != null) super(clock.now);
+      else super(...args);
+    }
+    static now() { return clock.now != null ? clock.now : RealDate.now(); }
+  }
 
   const rows = [];
   const logged = [];
@@ -83,7 +98,17 @@ export function loadCodeGs(props = {}) {
       base64DecodeWebSafe: (t) =>
         Buffer.from(String(t).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
       newBlob: (bytes) => ({ getDataAsString: () => Buffer.from(bytes).toString('utf8') }),
+      // Only the one pattern the script uses.
+      formatDate: (date, tz, pattern) => {
+        if (pattern !== 'yyyy-MM-dd') throw new Error(`unsupported pattern ${pattern}`);
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(date);
+      },
     },
+
+    Session: { getScriptTimeZone: () => 'America/New_York' },
+    Date: ScriptDate,
 
     PropertiesService: {
       getScriptProperties: () => ({
@@ -128,6 +153,8 @@ export function loadCodeGs(props = {}) {
     'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleSignIns', 'handleData',
     'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'handleMovePlay', 'playsSheet',
     'stageOf', 'released', 'featuresFor', 'cellText', 'ensureTab', 'checkSetup',
+    'handleScoutGames', 'handleScoutReport', 'handleSaveScoutPlayer', 'handleDeleteScoutPlayer',
+    'handleSaveScoutNotes', 'readGames', 'gameDateKey', 'opponentKey', 'todayKey',
     'handleCheck', 'handleSignOutAll', 'readActiveSessions',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];
@@ -141,7 +168,7 @@ export function loadCodeGs(props = {}) {
 
   return {
     fns: factory(...names.map((n) => globals[n])),
-    rows, cache, locks, sheets, logged, props: properties,
+    rows, cache, locks, sheets, logged, clock, props: properties,
   };
 }
 

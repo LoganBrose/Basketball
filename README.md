@@ -7,6 +7,7 @@ dependencies — deploying only copies the site's files into `dist/`.
 |---|---|
 | **Stats Tracker** | Pick any players to see their combined numbers, split home vs away, and open a game for the full box score |
 | **Play Diagram Builder** | Drag players on a court, draw movement across multiple steps, save plays as editable data |
+| **Scouting** | A report on each upcoming opponent: key players, stats links, notes. Staged — see [Releasing a feature](#releasing-a-feature) |
 
 ---
 
@@ -338,6 +339,78 @@ document.
 
 ---
 
+## Scouting
+
+The **Scouting** tab is built for a login only once Scouting is released to it (see [Releasing a
+feature](#releasing-a-feature)). It starts at **admin only**.
+
+### The page
+
+- **Upcoming games in date order**, from the `Games` tab. The **next game** is at the top, with its
+  report fully open.
+- **The rest of this week** (the next 7 days) are cards showing the day, date and opponent. Tap one
+  to open its report.
+- **Admin and coaches** also get **Later games** and **Past games** (the last 30), collapsed at the
+  bottom. A finished game drops off the upcoming list the day after it is played. The archive is
+  there for looking back; players never see it.
+
+### A report
+
+| Section | What it is | Admin | Coaches | Players |
+|---|---|---|---|---|
+| **About *opponent*** | Notes on the team: kept for **every** game against them | read + edit | read + edit | — |
+| **This game** | Notes for this game only | read + edit | read + edit | — |
+| **Key players** | Number, name, position, a short blurb, and a **View stats** button | read + edit | read + edit | **read** |
+| **Private notes** | Your own notes on the opponent | read + edit | — | — |
+
+**Scouting belongs to the opponent, not the game.** Play North twice and the second report already
+has North's key players, overview and private notes. Only *This game* starts empty. Opponents are
+matched by their name on the Games tab, ignoring capital letters and extra spaces, so `North` and
+`north ` are the same team. **Renaming an opponent on the Games tab** (say `North` → `North HS`)
+starts it with an empty report; rename it back and the old one returns. Two different schools typed
+with exactly the same name would share one report.
+
+**Players (view-only login) see a report from 7 days before the game through game day**, and only
+the key players and stats buttons. Days are counted in your time zone: the script project's own (Apps
+Script → Project Settings → Time zone), or the `TIME_ZONE` Script Property if you set one (for example
+`America/Chicago`). The script enforces this. A player asking for any other game is told it doesn't
+exist.
+
+**Stats links are only stored, never fetched.** Paste any page — MaxPreps, a league site — and the
+button opens it in a new tab. Only `http`/`https` links are kept; `maxpreps.com/...` typed without the
+`https://` is fixed up for you.
+
+**Everything is edited on the site**, not in the spreadsheet. Coaches don't need sheet access. Every
+save records who made it, shown as *Saved by …* under each section and in the `UpdatedBy` column.
+
+> **Last save wins.** If two coaches edit the same section or the same player at once, the second
+> save replaces the first without warning. Separate sections and separate players don't collide.
+> The *Saved by* line shows who saved last, so a lost edit can at least be traced.
+
+### The sheet tabs
+
+The script creates these in the **log spreadsheet** (the one with `SignIns` and `Plays`) when
+`checkSetup` runs, or the first time they are needed. **The stats spreadsheet is only read**: the
+`Games` tab supplies the schedule, and nothing is ever written to it. Coaches and players are only
+ever sent a game's ID, date, opponent and home/away — never a score.
+
+| Tab | Columns | One row per |
+|---|---|---|
+| `Opponents` | `OpponentKey`, `Opponent`, `Overview`, `Updated`, `UpdatedBy` | opponent |
+| `ScoutPlayers` | `Id`, `OpponentKey`, `Number`, `Name`, `Position`, `Blurb`, `StatsUrl`, `Order`, `Updated`, `UpdatedBy` | key player |
+| `ScoutGameNotes` | `GameId`, `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | game |
+| `ScoutPrivate` | `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | opponent — **admin only** |
+
+`OpponentKey` is the opponent's name in lowercase with spaces tidied. Private notes have a tab of
+their own that only an admin request ever opens, so they can't leak through another tab's reply. A
+key player's `Order` sorts the list (lower first; ties go by number). It isn't on the page yet, but
+you can set it in the sheet. Each opponent holds up to 30 key players.
+
+You can read and tidy these tabs by hand. Keep the header row and the `OpponentKey` values as they
+are, or rows will stop matching their opponent.
+
+---
+
 ## Sign-in
 
 The site can sit behind a **name and a shared password**, with every sign-in recorded where you can
@@ -395,11 +468,12 @@ Optional:
 | `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
 | `SIGNIN_DAYS` | how many days back the admin sign-in list goes (default 30) |
 | `RELEASE_SCOUTING` | who Scouting is open to: `admin`, `coaches` or `everyone` (default `admin`). See [Releasing a feature](#releasing-a-feature). |
+| `TIME_ZONE` | the time zone scouting dates are counted in, e.g. `America/Chicago` (default: the script project's time zone) |
 
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.
-It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays`)
-with its header row. **It never clears or rewrites a tab that already exists**; if one's header row
+It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays` and
+the scouting tabs) with its header row, and logs the time zone and today's date that scouting uses. **It never clears or rewrites a tab that already exists**; if one's header row
 has drifted, it logs a warning and leaves it alone.
 
 **5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
@@ -664,6 +738,8 @@ scripts. There are no dependencies and nothing is bundled — the site's files s
 | `assets/js/admin.js` | the admin prompt and the sign-in log |
 | `assets/js/teamplays.js` | the team playbook and the admin playbook in the sheet |
 | `assets/js/features.js` | which staged features this login may see — pure and tested |
+| `assets/js/scout.js` | scouting: grouping the schedule, dates, messages — pure and tested |
+| `assets/js/scouting.js` | the Scouting page |
 | `assets/js/sheets.js` | `parseRows` is shared by both sources, so they cannot disagree |
 | `apps-script/Code.gs` | the sign-in backend you paste into Google |
 
