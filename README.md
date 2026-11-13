@@ -374,9 +374,9 @@ with exactly the same name would share one report.
 
 **Players (view-only login) see a report from 7 days before the game through game day**: the About
 section (text only, not who saved it, and left off when it's empty), the key players and stats
-buttons, and their plays. Days are counted in your time zone: the script project's own (Apps
-Script → Project Settings → Time zone), or the `TIME_ZONE` Script Property if you set one (for example
-`America/Chicago`). The script enforces this. A player asking for any other game is told it doesn't
+buttons, and their plays. Game dates are always read as the day the Games
+cell shows. "Today" is counted in the `TIME_ZONE` Script Property if you set one (for example
+`America/Chicago`), otherwise in the stats spreadsheet's time zone (File → Settings). The script enforces this. A player asking for any other game is told it doesn't
 exist.
 
 ### Their plays
@@ -508,7 +508,7 @@ Optional:
 | `ADMIN_HOURS` | how long an admin session lasts, in hours (default 24) |
 | `SIGNIN_DAYS` | how many days back the admin sign-in list goes (default 30) |
 | `RELEASE_SCOUTING` | who Scouting is open to: `admin`, `coaches` or `everyone` (default `admin`). See [Releasing a feature](#releasing-a-feature). |
-| `TIME_ZONE` | the time zone scouting dates are counted in, e.g. `America/Chicago` (default: the script project's time zone) |
+| `TIME_ZONE` | the time zone scouting's "today" is counted in, e.g. `America/Chicago` (default: the stats spreadsheet's time zone). Game dates always match the Games tab whatever this says. |
 
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.

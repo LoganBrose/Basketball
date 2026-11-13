@@ -144,6 +144,23 @@ test('dates are read from real date cells and from typed text; unreadable ones a
   assert.equal(games.some((g) => g.gameId === 'EX1'), false, 'example rows are not games');
 });
 
+test('a date cell keeps its day whatever zone "today" is judged in', () => {
+  // G06 is midnight on Nov 16 in New York, the spreadsheet's zone. Read in
+  // Chicago (or a deployment still on an older project zone) it used to come
+  // out as 11pm on Nov 15.
+  for (const props of [{ TIME_ZONE: 'America/Chicago' }, { TIME_ZONE: 'America/Los_Angeles' }, {}]) {
+    const ctx = ctxWith('everyone', props);
+    assert.equal(ctx.fns.readGames().find((g) => g.gameId === 'G06').date, '2026-11-16', JSON.stringify(props));
+  }
+});
+
+test('with no TIME_ZONE, "today" follows the spreadsheet\'s zone, not the project\'s', () => {
+  const ctx = ctxWith();
+  ctx.spreadsheet.timeZone = 'Pacific/Auckland';   // the project zone in the harness is New York
+  ctx.clock.now = Date.parse('2026-11-13T12:00:00Z');   // 1am on Nov 14 in Auckland
+  assert.equal(ctx.fns.todayKey(), '2026-11-14');
+});
+
 test('no score ever leaves the script for anyone but through the admin stats route', () => {
   const ctx = ctxWith();
   seed(ctx, 'G03');
