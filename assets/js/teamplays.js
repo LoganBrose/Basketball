@@ -58,12 +58,17 @@ export function rowsToTeam(rows = []) {
   const bySlug = new Map();
 
   for (const row of rows) {
-    if (!row || !row.play) continue;
+    if (!row || !row.id) continue;
+    // A player's list has no diagrams in it (see summaryStub); anything else
+    // without a play is a broken row.
+    if (!row.play && typeof row.steps !== 'number') continue;
 
     const slug = row.playbook || DEFAULT_PLAYBOOK;
     // Normalized on the way in: a hand-edited cell should not be able to put a
     // shape the editor cannot render into the library.
-    const play = { ...normalizePlay(row.play), id: row.id, playbook: slug };
+    const play = row.play
+      ? { ...normalizePlay(row.play), id: row.id, playbook: slug }
+      : summaryStub(row, slug);
     play.updatedBy = row.updatedBy || '';
 
     plays.push(play);
@@ -102,6 +107,25 @@ const changeToken = (book) => (book === 'admin' ? adminToken() : writeToken());
 /** The request body for a book: the team playbook is sent exactly as before. */
 const withBook = (payload, book) => (book === 'team' ? payload : { ...payload, book });
 
+/**
+ * A list entry for a play whose diagram hasn't been downloaded: what a player
+ * gets for each play until they open it. `summary: true` is what tells the
+ * page to fetch the play before showing it.
+ */
+export function summaryStub(row, slug = row.playbook || DEFAULT_PLAYBOOK) {
+  return {
+    id: row.id,
+    name: row.name || 'Untitled play',
+    playbook: slug,
+    category: row.category || '',
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    courtType: row.courtType === 'full' ? 'full' : 'half',
+    frames: [],
+    stepCount: Number(row.steps) || 0,
+    summary: true,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Reading                                                             */
 /* ------------------------------------------------------------------ */
@@ -139,6 +163,34 @@ export async function fetchTeamPlays(book = 'team') {
   }
 
   return { ...rowsToTeam(result.data.plays), error: null, source: 'script' };
+}
+
+/** One play's reply, sorted into what the page should do about it. */
+export function teamPlayResult(result) {
+  if (!result || !result.ok) {
+    return { ok: false, reason: 'network', message: "Couldn't load this play. Check your connection and try again." };
+  }
+  const data = result.data || {};
+  if (data.ok && data.play && data.play.play) {
+    const row = data.play;
+    const slug = row.playbook || DEFAULT_PLAYBOOK;
+    return { ok: true, play: { ...normalizePlay(row.play), id: row.id, playbook: slug } };
+  }
+  if (data.reason === 'auth') return { ok: false, reason: 'auth', message: 'Your sign-in has ended. Sign in again.' };
+  if (data.reason === 'not_found') {
+    return { ok: false, reason: 'not_found', message: 'That play is no longer in the playbook.' };
+  }
+  return { ok: false, reason: 'error', message: "Couldn't load this play. Try again." };
+}
+
+/**
+ * Download one team play. A player opens every play this way, so each tap is
+ * checked against their sign-in as it is right now.
+ */
+export async function fetchTeamPlay(id, opts = {}) {
+  const token = siteToken();
+  if (!token) return { ok: false, reason: 'auth', message: 'Your sign-in has ended. Sign in again.' };
+  return teamPlayResult(await callScript(CONFIG.gate.url, { action: 'play', token, id }, opts));
 }
 
 /* ------------------------------------------------------------------ */

@@ -151,7 +151,7 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
   // Everything Code.gs defines that a test might want to reach.
   const exported = [
     'doPost', 'doGet', 'handleSignIn', 'handleAdmin', 'handleSignIns', 'handleData',
-    'handlePlays', 'handleSavePlay', 'handleDeletePlay', 'handleMovePlay', 'playsSheet',
+    'handlePlays', 'handlePlay', 'handleSavePlay', 'handleDeletePlay', 'handleMovePlay', 'playsSheet',
     'stageOf', 'released', 'featuresFor', 'cellText', 'ensureTab', 'checkSetup',
     'handleScoutGames', 'handleScoutReport', 'handleSaveScoutPlayer', 'handleDeleteScoutPlayer',
     'handleSaveScoutNotes', 'handleSaveOpponentPlay', 'handleDeleteOpponentPlay', 'readGames', 'gameDateKey', 'opponentKey', 'todayKey',

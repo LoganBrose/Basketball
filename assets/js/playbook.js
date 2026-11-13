@@ -17,10 +17,12 @@ import {
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
-import { isEnabled, isViewer, readSession, sessionValid, siteMaxAge } from './gate.js';
+import {
+  isEnabled, isViewer, readSession, sessionValid, siteMaxAge, signOutHere, watchSession,
+} from './gate.js';
 import {
   usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
-  canUseAdminBook, movePlay,
+  canUseAdminBook, movePlay, fetchTeamPlay,
 } from './teamplays.js';
 import {
   node, defs, midpoint, createDrawer,
@@ -77,6 +79,8 @@ const S = {
   viewer: false,
   // The Play animation while it runs: { t, plan, raf, last }. Null otherwise.
   anim: null,
+  // A player's page re-checks its sign-in every few minutes (watchSession).
+  sessionWatch: null,
 };
 
 /** Where each player starts when you add them, so a set takes seconds to lay out. */
@@ -923,7 +927,9 @@ function playRow(play, source) {
 
   const meta = document.createElement('span');
   meta.className = 'play-meta';
-  const bits = [`${play.frames.length} step${play.frames.length === 1 ? '' : 's'}`];
+  // A player's list carries the step count, not the steps themselves.
+  const steps = play.summary ? play.stepCount : play.frames.length;
+  const bits = [`${steps} step${steps === 1 ? '' : 's'}`];
   if (play.category) bits.unshift(play.category);
   if (play.courtType === 'full') bits.push('full court');
   meta.textContent = bits.join(' · ');
@@ -939,8 +945,7 @@ function playRow(play, source) {
   btn.addEventListener('click', () => {
     if (S.viewer) {
       // Just look at it. Nothing is copied into this browser.
-      loadPlay(structuredClone(play));
-      renderTeamList();
+      openViewerPlay(play);
       // On a phone the list sits above the court, so take them to the play.
       if (globalThis.matchMedia?.('(max-width: 900px)').matches) {
         $('#pb-viewbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1172,9 +1177,70 @@ async function renderTeam() {
 function openFirstTeamPlay() {
   const shown = scopedPlays(S.team);
   if (shown.some((p) => p.id === S.play.id)) return;
-  if (shown.length) {
-    loadPlay(structuredClone(shown[0]));
+  if (shown.length) openViewerPlay(shown[0]);
+}
+
+let viewerSeq = 0;
+
+/**
+ * Show one team play to a player.
+ *
+ * A player's list holds names only (the script sends nothing more), so the
+ * play itself is downloaded on every tap — even one opened a minute ago.
+ * Nothing is kept for re-use: each tap is checked against the sign-in as it is
+ * now, so after "Sign everyone out" the very next tap ends the session.
+ *
+ * Without a newer script the list already holds the full plays, and they are
+ * simply shown as before.
+ */
+async function openViewerPlay(entry) {
+  if (!entry.summary) {
+    viewerStatus('');
+    loadPlay(structuredClone(entry));
     renderTeamList();
+    return;
+  }
+
+  const seq = ++viewerSeq;
+  // Clear the court at once: the previous play must not sit there looking
+  // like the one just tapped.
+  loadPlay({ ...newPlay({ name: entry.name }), id: entry.id, courtType: entry.courtType });
+  renderTeamList();
+  viewerStatus('Loading play…', { loading: true });
+
+  const result = await fetchTeamPlay(entry.id);
+  if (seq !== viewerSeq) return;   // a newer tap has taken over
+
+  if (result.ok) {
+    viewerStatus('');
+    loadPlay(result.play);
+    renderTeamList();
+    return;
+  }
+  if (result.reason === 'auth') {
+    signOutHere();
+    return;
+  }
+  viewerStatus(result.message, { retry: () => openViewerPlay(entry) });
+}
+
+/** The line under the play's name in the player's view: loading, or a problem with Retry. */
+function viewerStatus(text, { loading = false, retry = null } = {}) {
+  const status = $('#vb-status');
+  if (!status) return;
+  $('.court-wrap')?.classList.toggle('loading', loading);
+  status.replaceChildren();
+  status.hidden = text === '';
+  if (!text) return;
+  status.className = loading ? 'small muted' : 'small missing';
+  status.append(document.createTextNode(text));
+  if (retry) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-small';
+    b.textContent = 'Retry';
+    b.addEventListener('click', retry);
+    status.append(document.createTextNode(' '), b);
   }
 }
 
@@ -2061,6 +2127,10 @@ function enterViewerMode() {
   const picker = $('#lib-playbook')?.closest('.field');
   const teamCard = $('#team-card');
   if (picker && teamCard) teamCard.querySelector('#team-blurb').after(picker);
+
+  // A cancelled sign-in ends this page within minutes, even if nobody taps
+  // anything: the page re-checks every few minutes and on returning to it.
+  if (!S.sessionWatch && isEnabled(CONFIG.gate)) S.sessionWatch = watchSession();
 
   // Never show a device play to a viewer, even for the moment before the team
   // playbook arrives.

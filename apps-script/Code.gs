@@ -105,6 +105,7 @@ function doPost(e) {
       case 'signIns': return json(handleSignIns(body));
       case 'data': return json(handleData(body));
       case 'plays': return json(handlePlays(body));
+      case 'play': return json(handlePlay(body));
       case 'savePlay': return json(handleSavePlay(body));
       case 'deletePlay': return json(handleDeletePlay(body));
       case 'movePlay': return json(handleMovePlay(body));
@@ -555,14 +556,60 @@ function bookRefusal(book) {
  *
  * Reading the team playbook takes a site (or viewer) token, so it works on a
  * phone with the team password. Reading the admin playbook takes an admin
- * token. This is the only action a viewer token is good for.
+ * token.
+ *
+ * A viewer (a player) gets the LIST only — names and a few facts, no
+ * diagrams — and fetches each play with `play` when it is opened. So once a
+ * player's sign-in is cancelled ("Sign everyone out", or their name taken off
+ * the roster), the next play they tap is refused, instead of every play
+ * staying in a page they already had open.
  */
 function handlePlays(body) {
   var book = bookOf(body);
   if (!book) return { ok: false, reason: 'bad_request' };
-  if (!bookReader(book, body.token).ok) return bookRefusal(book);
+  var reader = bookReader(book, body.token);
+  if (!reader.ok) return bookRefusal(book);
 
-  return { ok: true, book: book, plays: readPlayRows(playsSheet(book)) };
+  var plays = readPlayRows(playsSheet(book));
+  if (reader.role === 'viewer') plays = plays.map(playSummary);
+  return { ok: true, book: book, plays: plays };
+}
+
+/**
+ * What a player's list holds for one play: enough to show and pick it, and
+ * nothing of the play itself. Every field a viewer gets is named here.
+ */
+function playSummary(row) {
+  var play = row.play || {};
+  return {
+    id: row.id,
+    slug: row.slug,
+    playbook: row.playbook,
+    name: row.name,
+    updated: row.updated,
+    category: String(play.category || ''),
+    tags: Array.isArray(play.tags) ? play.tags.map(String) : [],
+    steps: Array.isArray(play.frames) ? play.frames.length : 0,
+    courtType: play.courtType === 'full' ? 'full' : 'half',
+  };
+}
+
+/**
+ * One team-playbook play, for anyone who may read the team playbook. This is
+ * how a player opens a play: one request per tap, each checked against the
+ * sign-in as it is now. Only the team playbook — never the admin playbook or
+ * an opponent's plays.
+ */
+function handlePlay(body) {
+  var reader = bookReader('team', body.token);
+  if (!reader.ok) return { ok: false, reason: 'auth' };
+  if (!body.id) return { ok: false, reason: 'bad_request' };
+
+  var plays = readPlayRows(playsSheet('team'));
+  for (var i = 0; i < plays.length; i++) {
+    if (plays[i].id === String(body.id)) return { ok: true, play: plays[i] };
+  }
+  return { ok: false, reason: 'not_found' };
 }
 
 /** A sheet's rows as plays. One unreadable row must not take the whole book down. */
