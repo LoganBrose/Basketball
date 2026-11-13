@@ -19,7 +19,7 @@ const play = (id, over = {}) => ({
 function ctxWith() {
   const ctx = loadCodeGs();
   ctx.site = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  ctx.admin = ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  ctx.admin = ctx.fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
   return ctx;
 }
 
@@ -64,7 +64,7 @@ test('one unreadable row does not take the whole playbook down', () => {
 function withViewer() {
   const ctx = loadCodeGs({ VIEWER_PASSWORD: 'view-pw' });
   ctx.site = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  ctx.admin = ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  ctx.admin = ctx.fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
   const res = ctx.fns.handleSignIn({ name: 'Pat Parent', password: 'view-pw' });
   assert.equal(res.role, 'viewer');
   ctx.viewer = res.token;
@@ -116,7 +116,7 @@ test('a refused save or delete changes nothing at all', () => {
 test('an expired coach or admin token cannot save', () => {
   const ctx = ctxWith();
   for (const role of ['site', 'admin']) {
-    const stale = ctx.fns.makeToken(role, 'Logan Brose', Date.now() - 1);
+    const stale = ctx.fns.makeToken(role, 'Alex Admin', Date.now() - 1);
     assert.deepEqual(
       ctx.fns.handleSavePlay({ token: stale, play: play('x') }),
       { ok: false, reason: 'auth' },
@@ -150,8 +150,8 @@ test('different ids are different plays even with the same name', () => {
 test('a save records who made it', () => {
   const ctx = ctxWith();
   const res = ctx.fns.handleSavePlay({ token: ctx.admin, play: play('a') });
-  assert.equal(res.updatedBy, 'Logan Brose');
-  assert.equal(ctx.fns.handlePlays({ token: ctx.admin }).plays[0].updatedBy, 'Logan Brose');
+  assert.equal(res.updatedBy, 'Alex Admin');
+  assert.equal(ctx.fns.handlePlays({ token: ctx.admin }).plays[0].updatedBy, 'Alex Admin');
 });
 
 test('a play with no id is a bad request, not a new row', () => {
@@ -240,7 +240,7 @@ test('every write takes the script lock and releases it', () => {
   // Without the lock, two saves can interleave between finding the row and
   // writing it, and one disappears with no error anywhere.
   const ctx = loadCodeGs();
-  const admin = ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  const admin = ctx.fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
 
   assert.equal(ctx.locks.taken, 0);
   ctx.fns.handleSavePlay({ token: admin, play: play('a') });
@@ -253,7 +253,7 @@ test('every write takes the script lock and releases it', () => {
 test('the lock is released even when the write throws', () => {
   // A lock left held blocks every later save for its full timeout.
   const ctx = loadCodeGs();
-  const admin = ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+  const admin = ctx.fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
 
   ctx.sheets.Plays = {
     getDataRange: () => ({ getDisplayValues: () => [[]] }),

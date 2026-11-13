@@ -37,7 +37,7 @@ function ctxWith(stage = 'everyone', props = {}) {
   }, { now: NOW });
   ctx.sheets.Games = gamesTab();
   ctx.coach = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  const admin = ctx.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = ctx.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   ctx.adminSite = admin.token;
   ctx.admin = admin.adminToken;
   ctx.viewer = ctx.fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).token;
@@ -167,7 +167,7 @@ test('the admin gets everything, private notes included', () => {
   const r = ctx.fns.handleScoutReport({ token: ctx.admin, gameId: 'G03' });
   assert.equal(r.overview.text, 'Full-court press after makes.');
   assert.equal(r.privateNotes.text, 'Their coach ran our old sets.');
-  assert.equal(r.privateNotes.updatedBy, 'Logan Brose');
+  assert.equal(r.privateNotes.updatedBy, 'Alex Admin');
   assert.equal(r.players[0].updatedBy, 'Casey Jones');
 });
 
@@ -275,7 +275,7 @@ test('a player can be edited and removed only through their own opponent', () =>
   const r = ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' });
   assert.equal(r.players.length, 1);
   assert.equal(r.players[0].name, 'Jay Tall');
-  assert.equal(r.players[0].updatedBy, 'Logan Brose', 'who saved last is recorded');
+  assert.equal(r.players[0].updatedBy, 'Alex Admin', 'who saved last is recorded');
 
   ctx.fns.handleDeleteScoutPlayer({ token: ctx.coach, gameId: 'G03', id });
   assert.deepEqual(ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' }).players, []);
@@ -333,7 +333,7 @@ test('saving notes again replaces them, and records who saved last', () => {
   assert.equal(ctx.sheets.Opponents.rows.length, 2, 'one row per opponent');
   const r = ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' });
   assert.equal(r.overview.text, 'two');
-  assert.equal(r.overview.updatedBy, 'Logan Brose');
+  assert.equal(r.overview.updatedBy, 'Alex Admin');
 });
 
 test('every write releases its lock', () => {

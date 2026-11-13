@@ -77,7 +77,7 @@ test('a Players tab with no name column lets nobody in', () => {
 test('the team and admin passwords still work under any name', () => {
   const { fns } = ctxWith();
   assert.equal(fns.handleSignIn({ name: 'Assistant Coach', password: 'team-pw' }).role, 'site');
-  assert.equal(fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).role, 'admin');
+  assert.equal(fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' }).role, 'admin');
 });
 
 test('a wrong password under a listed name is still just a wrong password', () => {

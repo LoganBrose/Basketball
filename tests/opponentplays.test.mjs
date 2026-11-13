@@ -22,7 +22,7 @@ function ctxWith(stage = 'everyone') {
     ['G05', '12/5/2026', 'North', 'Home'],
   ]);
   ctx.coach = ctx.fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' }).token;
-  ctx.admin = ctx.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).adminToken;
+  ctx.admin = ctx.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' }).adminToken;
   ctx.viewer = ctx.fns.handleSignIn({ name: 'Parent', password: 'view-pw' }).token;
   return ctx;
 }
@@ -76,7 +76,7 @@ test('saving the same builder play to the same opponent again replaces it', () =
   assert.equal(again.id, first.id, 'same opponent play');
   const r = ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' });
   assert.deepEqual(names(r), ['v2']);
-  assert.equal(r.plays[0].updatedBy, 'Logan Brose', 'who saved last');
+  assert.equal(r.plays[0].updatedBy, 'Alex Admin', 'who saved last');
 });
 
 test('the same builder play saved to two opponents is two plays', () => {

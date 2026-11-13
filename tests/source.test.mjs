@@ -73,7 +73,7 @@ function withStats() {
 }
 
 const siteToken = (ctx) => ctx.fns.handleSignIn({ name: 'Casey', password: 'team-pw' }).token;
-const adminToken = (ctx) => ctx.fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).token;
+const adminToken = (ctx) => ctx.fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).token;
 
 test('a site token opens Players but not StatsLog', () => {
   // The lineup selector needs names; the numbers are not its business.

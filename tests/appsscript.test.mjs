@@ -15,7 +15,7 @@ import { loadCodeGs, post } from './helpers/apps-script.mjs';
 
 test('names are trimmed, collapsed and capped', () => {
   const { fns } = loadCodeGs();
-  assert.equal(fns.cleanName('  Logan   Brose '), 'Logan Brose');
+  assert.equal(fns.cleanName('  Alex   Admin '), 'Alex Admin');
   assert.equal(fns.cleanName('Casey\n\tJones'), 'Casey Jones');
   assert.equal(fns.cleanName('   '), '');
   assert.equal(fns.cleanName(null), '');
@@ -67,7 +67,7 @@ test('an expired token is refused', () => {
 
 test('a tampered signature or payload is refused', () => {
   const { fns } = loadCodeGs();
-  const token = fns.makeToken('admin', 'Logan Brose', Date.now() + 60_000);
+  const token = fns.makeToken('admin', 'Alex Admin', Date.now() + 60_000);
   assert.equal(fns.verifyToken(token.slice(0, -2) + 'xx', 'admin').ok, false, 'signature');
   assert.equal(fns.verifyToken('Zm9v' + token.slice(token.indexOf('.')), 'admin').ok, false, 'payload');
   assert.equal(fns.verifyToken('garbage', 'admin').ok, false);
@@ -79,7 +79,7 @@ test('changing ADMIN_NAME invalidates admin tokens immediately', () => {
   // Otherwise an outstanding token stays good for the rest of its 24 hours,
   // which is exactly the window you are trying to close.
   const ctx = loadCodeGs();
-  const token = ctx.fns.makeToken('admin', 'Logan Brose', Date.now() + 60_000);
+  const token = ctx.fns.makeToken('admin', 'Alex Admin', Date.now() + 60_000);
   assert.equal(ctx.fns.verifyToken(token, 'admin').ok, true);
 
   ctx.props.ADMIN_NAME = 'Someone Else';
@@ -116,7 +116,7 @@ test('a wrong site password unlocks nothing and is logged as a failure', () => {
 
 test('the admin password works with the admin name, whatever its case or spacing', () => {
   const { fns } = loadCodeGs();
-  const res = fns.handleAdmin({ name: '  logan   BROSE ', password: 'admin-pw' });
+  const res = fns.handleAdmin({ name: '  alex   ADMIN ', password: 'admin-pw' });
   assert.equal(res.ok, true);
   assert.equal(fns.verifyToken(res.token, 'admin').ok, true);
   assert.ok(Array.isArray(res.signIns));
@@ -129,7 +129,7 @@ test('the right admin password under the wrong name fails', () => {
 
 test('the admin name with the wrong password fails', () => {
   const { fns } = loadCodeGs();
-  assert.equal(fns.handleAdmin({ name: 'Logan Brose', password: 'nope' }).ok, false);
+  assert.equal(fns.handleAdmin({ name: 'Alex Admin', password: 'nope' }).ok, false);
 });
 
 test('a wrong admin name and a wrong admin password are indistinguishable', () => {
@@ -137,7 +137,7 @@ test('a wrong admin name and a wrong admin password are indistinguishable', () =
   // the password.
   const { fns } = loadCodeGs();
   const wrongName = fns.handleAdmin({ name: 'Someone Else', password: 'admin-pw' });
-  const wrongPassword = fns.handleAdmin({ name: 'Logan Brose', password: 'nope' });
+  const wrongPassword = fns.handleAdmin({ name: 'Alex Admin', password: 'nope' });
 
   assert.deepEqual(wrongName, wrongPassword);
   assert.deepEqual(wrongName, { ok: false, reason: 'password' });
@@ -173,9 +173,9 @@ test('during a lockout even the correct passwords are refused', () => {
   for (let i = 0; i < 6; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
 
   assert.equal(fns.handleSignIn({ name: 'Coach', password: 'team-pw' }).reason, 'slow');
-  assert.equal(fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' }).reason, 'slow');
+  assert.equal(fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' }).reason, 'slow');
   assert.equal(fns.handleSignIn({ name: 'Fan', password: 'view-pw' }).reason, 'slow');
-  assert.equal(fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).reason, 'slow');
+  assert.equal(fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).reason, 'slow');
 });
 
 test('the lockout ends after ten minutes and the count starts again', () => {
@@ -205,7 +205,7 @@ test('people already signed in keep working through a lockout', () => {
   const { fns, sheets } = loadCodeGs();
   sheets.Players = { getDataRange: () => ({ getDisplayValues: () => [['Player ID']] }) };
   const coach = fns.handleSignIn({ name: 'Coach', password: 'team-pw' });
-  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   for (let i = 0; i < 6; i++) fns.handleSignIn({ name: 'Guesser', password: 'guess' + i });
 
   assert.equal(fns.handleCheck({ token: coach.token }).valid, true);
@@ -245,8 +245,8 @@ test('the sign-in list comes back newest first', () => {
   fns.handleSignIn({ name: 'First', password: 'team-pw' });
   fns.handleSignIn({ name: 'Second', password: 'team-pw' });
 
-  const list = fns.handleAdmin({ name: 'Logan Brose', password: 'admin-pw' }).signIns;
-  assert.equal(list[0].name, 'Logan Brose', 'the admin sign-in itself is the newest');
+  const list = fns.handleAdmin({ name: 'Alex Admin', password: 'admin-pw' }).signIns;
+  assert.equal(list[0].name, 'Alex Admin', 'the admin sign-in itself is the newest');
   assert.equal(list[1].name, 'Second');
   assert.equal(list[2].name, 'First');
 });
@@ -260,7 +260,7 @@ test('a pipe is stripped from a name, because it separates token fields', () => 
   // exactly three fields, so a name carrying one would sign in, hand back a
   // token, and then fail every request made with it.
   const { fns } = loadCodeGs();
-  assert.equal(fns.cleanName('Logan|Brose'), 'LoganBrose');
+  assert.equal(fns.cleanName('Alex|Admin'), 'AlexAdmin');
   assert.equal(fns.cleanName('a | b'), 'a b', 'the surrounding spaces still collapse');
   assert.equal(fns.cleanName('|'), '', 'a name that was only a pipe is unusable');
   assert.equal(fns.cleanName('  |Casey|  '), 'Casey');
@@ -270,7 +270,7 @@ test('a token issued for a name containing a pipe still verifies', () => {
   // The end the bug actually bit: sign-in succeeded and everything after it
   // failed, which reads as a broken site rather than a rejected name.
   const { fns } = loadCodeGs();
-  const res = fns.handleSignIn({ name: 'Logan|Brose', password: 'team-pw' });
+  const res = fns.handleSignIn({ name: 'Alex|Admin', password: 'team-pw' });
 
   assert.equal(res.ok, true);
   const check = fns.verifyToken(res.token, 'site');
@@ -281,12 +281,12 @@ test('a token issued for a name containing a pipe still verifies', () => {
 test('an admin whose typed name contains a pipe is handled consistently', () => {
   // Both sides run the same cleanName, so ADMIN_NAME and the typed name are
   // compared after the same stripping.
-  const ctx = loadCodeGs({ ADMIN_NAME: 'Logan Brose' });
-  assert.equal(ctx.fns.handleAdmin({ name: 'Logan|Brose', password: 'admin-pw' }).ok, false,
+  const ctx = loadCodeGs({ ADMIN_NAME: 'Alex Admin' });
+  assert.equal(ctx.fns.handleAdmin({ name: 'Alex|Admin', password: 'admin-pw' }).ok, false,
     'stripping does not turn a different name into a match');
 
-  const piped = loadCodeGs({ ADMIN_NAME: 'Logan|Brose' });
-  const res = piped.fns.handleAdmin({ name: 'LoganBrose', password: 'admin-pw' });
+  const piped = loadCodeGs({ ADMIN_NAME: 'Alex|Admin' });
+  const res = piped.fns.handleAdmin({ name: 'AlexAdmin', password: 'admin-pw' });
   assert.equal(res.ok, true, 'a pipe in the property is stripped the same way');
   assert.equal(piped.fns.verifyToken(res.token, 'admin').ok, true);
 });
@@ -346,7 +346,7 @@ test('a sign-in with no page or ua still works rather than throwing', () => {
 test('the admin password at the front door signs you straight in as admin', () => {
   // The whole point: no second prompt for the person who owns the site.
   const { fns, rows } = loadCodeGs();
-  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw', page: 'index.html' });
+  const res = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw', page: 'index.html' });
 
   assert.equal(res.ok, true);
   assert.equal(fns.verifyToken(res.token, 'site').ok, true, 'a site token as well');
@@ -356,7 +356,7 @@ test('the admin password at the front door signs you straight in as admin', () =
 
 test('the admin name is matched the same way here as in handleAdmin', () => {
   const { fns } = loadCodeGs();
-  const res = fns.handleSignIn({ name: '  logan   BROSE ', password: 'admin-pw' });
+  const res = fns.handleSignIn({ name: '  alex   ADMIN ', password: 'admin-pw' });
   assert.equal(res.ok, true);
   assert.equal(fns.verifyToken(res.adminToken, 'admin').ok, true);
 });
@@ -373,7 +373,7 @@ test('the team password gets a site token and no admin token', () => {
 test('the team password under the admin name still gets no admin token', () => {
   // Knowing the admin name is not a credential.
   const { fns } = loadCodeGs();
-  const res = fns.handleSignIn({ name: 'Logan Brose', password: 'team-pw' });
+  const res = fns.handleSignIn({ name: 'Alex Admin', password: 'team-pw' });
   assert.equal(res.ok, true);
   assert.equal(res.adminToken, undefined);
 });
@@ -390,7 +390,7 @@ test('the admin password under the wrong name is refused, indistinguishably', ()
 
 test('the front door works through doPost, not just called directly', () => {
   const { fns } = loadCodeGs();
-  const res = post(fns, { action: 'signin', name: 'Logan Brose', password: 'admin-pw' });
+  const res = post(fns, { action: 'signin', name: 'Alex Admin', password: 'admin-pw' });
   assert.equal(res.ok, true);
   assert.ok(res.adminToken, 'the admin token survives JSON serialisation');
 });
@@ -404,7 +404,7 @@ test('an admin token fetches the sign-in log without the password', () => {
   // token the sign-in already produced.
   const { fns } = loadCodeGs();
   fns.handleSignIn({ name: 'Casey Jones', password: 'team-pw' });
-  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
 
   const res = fns.handleSignIns({ token: admin.adminToken });
   assert.equal(res.ok, true);
@@ -420,14 +420,14 @@ test('a site token cannot read the sign-in log', () => {
 
 test('no token, a junk token or an expired one cannot read it either', () => {
   const { fns } = loadCodeGs();
-  for (const token of ['', undefined, 'garbage', fns.makeToken('admin', 'Logan Brose', Date.now() - 1)]) {
+  for (const token of ['', undefined, 'garbage', fns.makeToken('admin', 'Alex Admin', Date.now() - 1)]) {
     assert.deepEqual(fns.handleSignIns({ token }), { ok: false, reason: 'auth' });
   }
 });
 
 test('the log action works through doPost', () => {
   const { fns } = loadCodeGs();
-  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   assert.equal(post(fns, { action: 'signIns', token: admin.adminToken }).ok, true);
 });
 
@@ -437,10 +437,10 @@ test('the log action works through doPost', () => {
 
 test('the sign-in list reports how many days it covers', () => {
   const { fns } = loadCodeGs();
-  const admin = fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const admin = fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   assert.equal(fns.handleSignIns({ token: admin.adminToken }).days, 30);
 
   const custom = loadCodeGs({ SIGNIN_DAYS: '14' });
-  const a2 = custom.fns.handleSignIn({ name: 'Logan Brose', password: 'admin-pw' });
+  const a2 = custom.fns.handleSignIn({ name: 'Alex Admin', password: 'admin-pw' });
   assert.equal(custom.fns.handleSignIns({ token: a2.adminToken }).days, 14);
 });
