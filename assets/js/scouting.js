@@ -190,10 +190,11 @@ function renderReport(host, r) {
     button('Export scouting PDF', () => printScoutReport(r, printDraw), 'btn btn-small')));
 
   // Only what arrived is drawn; a viewer's reply has no notes in it at all.
-  if (r.overview) {
+  // Players get the overview's text only, and an empty one isn't shown to them.
+  if (r.overview && (r.canEdit || String(r.overview.text || '').trim())) {
     host.append(notesBlock(ctx, {
       kind: 'overview', title: `About ${r.game.opponent}`, note: r.overview,
-      hint: 'Kept for every game against them.',
+      hint: r.canEdit ? 'Kept for every game against them.' : '',
     }));
   }
 
@@ -287,7 +288,8 @@ function notesBlock(ctx, { kind, title, note, hint, cls = '' }) {
     ? el('p', { class: 'scout-text', text: note.text })
     : el('p', { class: 'small muted', text: 'Nothing yet.' }));
   const meta = savedText(note);
-  view.append(el('p', { class: 'small muted', text: [hint, meta].filter(Boolean).join(' ') }));
+  const foot = [hint, meta].filter(Boolean).join(' ');
+  if (foot) view.append(el('p', { class: 'small muted', text: foot }));
   block.append(view);
 
   if (!ctx.canEdit) return block;

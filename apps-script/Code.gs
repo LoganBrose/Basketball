@@ -951,9 +951,9 @@ function handleScoutGames(body) {
  * from whole rows, so a column added later is not sent until someone decides
  * who should see it.
  *
- *   viewer: the game, key players (number, name, position, blurb, stats link)
- *           and the opponent's plays
- *   coach:  + overview, who saved what
+ *   viewer: the game, the overview's text, key players (number, name,
+ *           position, blurb, stats link) and the opponent's plays
+ *   coach:  + who saved what
  *   admin:  + private notes
  */
 function handleScoutReport(body) {
@@ -988,9 +988,10 @@ function handleScoutReport(body) {
     plays: plays,
   };
 
-  if (editor) {
-    report.overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
-  }
+  // Everyone reads the overview; only editors learn who saved it, as with the
+  // key players above.
+  var overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
+  report.overview = editor ? overview : { text: overview.text };
   if (who.role === 'admin') {
     report.privateNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS), 0, game.opponentKey), 1);
   }

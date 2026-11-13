@@ -360,7 +360,7 @@ feature](#releasing-a-feature)). It starts at **admin only**.
 
 | Section | What it is | Admin | Coaches | Players |
 |---|---|---|---|---|
-| **About *opponent*** | Notes on the team: kept for **every** game against them | read + edit | read + edit | — |
+| **About *opponent*** | Notes on the team: kept for **every** game against them | read + edit | read + edit | **read** |
 | **Key players** | Number, name, position, a short blurb, and a **View stats** button | read + edit | read + edit | **read** |
 | **Private notes** | Your own notes on the opponent | read + edit | — | — |
 | **Their plays** | The opponent's plays, drawn in the play builder. Step through them and press ▶ Play, as with ours | read + remove | read + remove | **read** |
@@ -372,8 +372,9 @@ matched by their name on the Games tab, ignoring capital letters and extra space
 starts it with an empty report; rename it back and the old one returns. Two different schools typed
 with exactly the same name would share one report.
 
-**Players (view-only login) see a report from 7 days before the game through game day**, and only
-the key players and stats buttons. Days are counted in your time zone: the script project's own (Apps
+**Players (view-only login) see a report from 7 days before the game through game day**: the About
+section (text only, not who saved it, and left off when it's empty), the key players and stats
+buttons, and their plays. Days are counted in your time zone: the script project's own (Apps
 Script → Project Settings → Time zone), or the `TIME_ZONE` Script Property if you set one (for example
 `America/Chicago`). The script enforces this. A player asking for any other game is told it doesn't
 exist.
@@ -407,7 +408,7 @@ browser's "Save as PDF" (computer) or the share sheet (phone).
 
 **It prints what that login can see, and nothing more.** Your PDF has your private notes in a box
 marked *only you*. A coach's has no private notes, because a coach's report never had any. A
-player's has only the key players and their plays. Empty notes are left off the page.
+player's has the About section, the key players and their plays. Empty notes are left off the page.
 
 **Stats links are only stored, never fetched.** Paste any page — MaxPreps, a league site — and the
 button opens it in a new tab. Only `http`/`https` links are kept; `maxpreps.com/...` typed without the
