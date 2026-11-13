@@ -113,6 +113,8 @@ function doPost(e) {
       case 'saveScoutPlayer': return json(handleSaveScoutPlayer(body));
       case 'deleteScoutPlayer': return json(handleDeleteScoutPlayer(body));
       case 'saveScoutNotes': return json(handleSaveScoutNotes(body));
+      case 'saveOpponentPlay': return json(handleSaveOpponentPlay(body));
+      case 'deleteOpponentPlay': return json(handleDeleteOpponentPlay(body));
       case 'check': return json(handleCheck(body));
       case 'signOutAll': return json(handleSignOutAll(body));
       default: return json({ ok: false, reason: 'unknown_action' });
@@ -734,11 +736,22 @@ var SCOUT_GAME_NOTES_HEADERS = ['GameId', 'OpponentKey', 'Notes', 'Updated', 'Up
 var SCOUT_PRIVATE_SHEET = 'ScoutPrivate';
 var SCOUT_PRIVATE_HEADERS = ['OpponentKey', 'Notes', 'Updated', 'UpdatedBy'];
 
+/**
+ * The opponent's plays, drawn in the play builder. A tab of their own, so they
+ * can never turn up in the device, team or admin playbooks. `SourceId` is the
+ * id of the builder play it was saved from: saving that play to the same
+ * opponent again updates this row instead of adding another.
+ */
+var OPPONENT_PLAYS_SHEET = 'OpponentPlays';
+var OPPONENT_PLAYS_HEADERS = ['Id', 'OpponentKey', 'Opponent', 'SourceId', 'GameId', 'Name', 'Updated',
+  'UpdatedBy', 'JSON'];
+
 var SCOUT_TABS = [
   [OPPONENTS_SHEET, OPPONENTS_HEADERS],
   [SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS],
   [SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS],
   [SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS],
+  [OPPONENT_PLAYS_SHEET, OPPONENT_PLAYS_HEADERS],
 ];
 
 /** Players see a report from this many days before the game. */
@@ -940,7 +953,8 @@ function handleScoutGames(body) {
  * from whole rows, so a column added later is not sent until someone decides
  * who should see it.
  *
- *   viewer: the game, and key players (number, name, position, blurb, stats link)
+ *   viewer: the game, key players (number, name, position, blurb, stats link)
+ *           and the opponent's plays
  *   coach:  + overview, game notes, who saved what
  *   admin:  + private notes
  */
@@ -961,12 +975,19 @@ function handleScoutReport(body) {
     return out;
   });
 
+  var plays = readOpponentPlays(ss, game.opponentKey).map(function (p) {
+    var out = { id: p.id, name: p.name, play: p.play };
+    if (editor) { out.sourceId = p.sourceId; out.updated = p.updated; out.updatedBy = p.updatedBy; }
+    return out;
+  });
+
   var report = {
     ok: true,
     role: who.role === 'site' ? 'coach' : who.role,
     canEdit: editor,
     game: game,
     players: players,
+    plays: plays,
   };
 
   if (editor) {
@@ -1011,6 +1032,108 @@ function readScoutPlayers(ss, key) {
     return a.order - b.order || (Number(a.number) || 0) - (Number(b.number) || 0) || a.name.localeCompare(b.name);
   });
   return players;
+}
+
+/**
+ * An opponent's plays, oldest first. A row whose JSON won't parse is skipped:
+ * one bad cell must cost one play, not the report.
+ */
+function readOpponentPlays(ss, key) {
+  var values = ensureTab(ss, OPPONENT_PLAYS_SHEET, OPPONENT_PLAYS_HEADERS).getDataRange().getDisplayValues();
+  var plays = [];
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    if (!r[0] || r[1] !== key) continue;
+    var play;
+    try {
+      play = JSON.parse(r[8]);
+    } catch (err) {
+      continue;
+    }
+    if (!play || typeof play !== 'object') continue;
+    plays.push({ id: r[0], sourceId: r[3], name: r[5], updated: r[6], updatedBy: r[7], play: play });
+  }
+  return plays;
+}
+
+/**
+ * The play as it is kept for an opponent: its own id, and no playbook — it
+ * belongs to no playbook of ours, and must not look as if it did.
+ */
+function opponentPlayJson(play, id) {
+  var copy = JSON.parse(JSON.stringify(play));
+  copy.id = id;
+  delete copy.playbook;
+  delete copy.slug;
+  delete copy.updatedBy;
+  return JSON.stringify(copy);
+}
+
+/**
+ * Save a play from the builder to an opponent. Admin and coaches.
+ *
+ * `gameId` names the game it was picked from; the script works out the
+ * opponent, so the play shows on every report against that team. Saving the
+ * same builder play (same id) to the same opponent again replaces it.
+ */
+function handleSaveOpponentPlay(body) {
+  var who = scoutWho(body);
+  if (!who || !scoutEditor(who)) return notReleased();
+  var game = scoutGame(who, body.gameId);
+  if (!game) return { ok: false, reason: 'not_found' };
+
+  var play = body.play;
+  if (!play || typeof play !== 'object' || !Array.isArray(play.frames)) return { ok: false, reason: 'bad_request' };
+  var sourceId = oneLine(play.id, 80);
+  var name = oneLine(play.name, SCOUT_LIMITS.name) || 'Untitled play';
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = ensureTab(logSpreadsheet(), OPPONENT_PLAYS_SHEET, OPPONENT_PLAYS_HEADERS);
+    var values = sheet.getDataRange().getDisplayValues();
+    var index = -1;
+    if (sourceId !== '') {
+      for (var i = 1; i < values.length; i++) {
+        if (values[i][1] === game.opponentKey && values[i][3] === sourceId) { index = i + 1; break; }
+      }
+    }
+    var id = index === -1 ? newScoutId('opp-') : values[index - 1][0];
+
+    var text = opponentPlayJson(play, id);
+    if (text.length > MAX_PLAY_CHARS) return { ok: false, reason: 'too_big' };
+
+    var row = [
+      id, cellText(game.opponentKey), cellText(game.opponent), cellText(sourceId), cellText(game.gameId),
+      cellText(name), new Date(), cellText(who.name), text,
+    ];
+    if (index === -1) sheet.appendRow(row);
+    else sheet.getRange(index, 1, 1, OPPONENT_PLAYS_HEADERS.length).setValues([row]);
+    return {
+      ok: true, id: id, replaced: index !== -1, opponent: game.opponent, updatedBy: who.name,
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Remove one opponent play, only through a game against that opponent. */
+function handleDeleteOpponentPlay(body) {
+  var who = scoutWho(body);
+  if (!who || !scoutEditor(who)) return notReleased();
+  var game = scoutGame(who, body.gameId);
+  if (!game || !body.id) return { ok: false, reason: 'not_found' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = ensureTab(logSpreadsheet(), OPPONENT_PLAYS_SHEET, OPPONENT_PLAYS_HEADERS);
+    var found = findSheetRow(sheet, 0, body.id);
+    if (found && found.row[1] === game.opponentKey) sheet.deleteRow(found.index);
+    return { ok: true, id: String(body.id) };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** An http(s) link, or '' — never javascript:, data: or anything else. */

@@ -17,6 +17,9 @@ import { hasFeature } from './features.js';
 import {
   groupGames, dateParts, whenText, matchup, playerTitle, statsLink, savedText, scoutMessage,
 } from './scout.js';
+import { mountPlayViewer } from './playviewer.js';
+import { deleteOpponentPlay } from './opponentplays.js';
+import { listPlays, savePlay } from './library.js';
 
 const root = document.getElementById('scout-root');
 const S = { schedule: null };
@@ -190,6 +193,74 @@ function renderReport(host, r) {
       cls: 'scout-private',
     }));
   }
+
+  // Their plays go last, after everything said about them.
+  host.append(theirPlaysBlock(ctx, r.game.opponent, r.plays || []));
+}
+
+/**
+ * The opponent's plays: each one stepped through and animated like ours.
+ * They are drawn in the play builder and saved here with "Save to opponent
+ * playbook"; they never appear in any of our playbooks.
+ */
+function theirPlaysBlock(ctx, opponent, plays) {
+  const block = el('section', { class: 'scout-block' });
+  block.append(el('div', { class: 'scout-block-head' }, el('h3', { text: 'Their plays' })));
+
+  if (plays.length === 0) {
+    block.append(el('p', {
+      class: 'small muted',
+      text: ctx.canEdit
+        ? `None yet. Draw one in the Playbook, then press “Save to opponent playbook” and pick a game against ${opponent}.`
+        : 'None yet.',
+    }));
+    return block;
+  }
+
+  for (const p of plays) {
+    const item = el('div', { class: 'scout-opp-play' });
+    item.append(el('h4', { text: p.name || p.play?.name || 'Untitled play' }));
+    const viewer = el('div');
+    item.append(viewer);
+    mountPlayViewer(viewer, p.play || {});
+
+    if (ctx.canEdit) {
+      const meta = savedText(p);
+      if (meta) item.append(el('p', { class: 'small muted', text: meta }));
+      const actions = el('div', { class: 'play-actions' });
+      actions.append(button('Open in builder', () => openInBuilder(p), 'play-action'));
+      const del = button('Remove', async () => {
+        if (!confirm(`Remove “${p.name}” from ${opponent}'s plays? It comes off every report against them.`)) return;
+        del.disabled = true;
+        const result = await deleteOpponentPlay(ctx.gameId, p.id);
+        if (!result.ok) {
+          del.disabled = false;
+          alert(result.message);
+          return;
+        }
+        ctx.reload();
+      }, 'play-action danger');
+      actions.append(del);
+      item.append(actions);
+    }
+    block.append(item);
+  }
+  return block;
+}
+
+/**
+ * Copy an opponent play onto this device and open it in the builder, like
+ * opening a team play. It keeps the id it was saved from, so "Save to opponent
+ * playbook" afterwards updates this play rather than adding a second one.
+ */
+function openInBuilder(p) {
+  const id = p.sourceId || p.id;
+  const existing = listPlays().find((x) => x.id === id);
+  const replace = !existing || confirm(
+    `This device already has “${existing.name}”.\n\nOK: replace it with the version in the scouting report.\nCancel: open the copy on this device.`,
+  );
+  if (replace) savePlay({ ...structuredClone(p.play), id, name: p.name || p.play?.name }, { touch: false });
+  globalThis.location.href = `playbook.html?open=${encodeURIComponent(id)}`;
 }
 
 /** Overview, game notes or private notes: text, who saved it, and Edit. */

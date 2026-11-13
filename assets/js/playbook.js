@@ -13,7 +13,7 @@ import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl, youtubeEmbed,
-  pointAt, planStep, tokensAt,
+  planStep, tokensAt,
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
@@ -22,8 +22,13 @@ import {
   usingScript, canPublish, fetchTeamPlays, saveTeamPlay, deleteTeamPlay,
   canUseAdminBook, movePlay,
 } from './teamplays.js';
-import { shortName } from './model.js';
+import {
+  node, defs, midpoint, createDrawer,
+} from './draw.js';
 import { printPlay, printPlaybook } from './printout.js';
+import {
+  canSaveOpponentPlays, fetchSchedule, pickerGames, saveOpponentPlay,
+} from './opponentplays.js';
 import {
   publishPlan, markPublished, fileUrl, minify, slugify as pubSlug,
 } from './publish.js';
@@ -33,14 +38,13 @@ import {
 } from './playbooks.js';
 import {
   SLOTS, readLineup, writeLineup, pruneLineup, availableFor, playerInSlot,
-  assignSlot, tokenGlyph,
+  assignSlot,
 } from './lineup.js';
 
 const $ = (s) => document.querySelector(s);
 const svg = $('#court');
 
 const SNAP = 0.5; // feet
-const TOKEN_R = 1.25;
 
 const S = {
   play: newPlay(),
@@ -97,18 +101,6 @@ const HINTS = {
 /* Small helpers                                                       */
 /* ------------------------------------------------------------------ */
 
-function node(name, attrs = {}) {
-  const n = document.createElementNS(SVG_NS, name);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
-  return n;
-}
-
-function textNode(str, attrs = {}) {
-  const t = node('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central', ...attrs });
-  t.textContent = str;
-  return t;
-}
-
 const frame = () => S.play.frames[S.frame];
 const snap = (v) => Math.round(v / SNAP) * SNAP;
 
@@ -129,168 +121,16 @@ function toCourt(evt) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Arrow geometry                                                      */
-/* ------------------------------------------------------------------ */
-
-function tangentAt(a, t) {
-  if (!a.ctrl) return { x: a.to.x - a.from.x, y: a.to.y - a.from.y };
-  const m = 1 - t;
-  return {
-    x: 2 * m * (a.ctrl.x - a.from.x) + 2 * t * (a.to.x - a.ctrl.x),
-    y: 2 * m * (a.ctrl.y - a.from.y) + 2 * t * (a.to.y - a.ctrl.y),
-  };
-}
-
-function unitNormal(a, t) {
-  const g = tangentAt(a, t);
-  const m = Math.hypot(g.x, g.y) || 1;
-  return { x: -g.y / m, y: g.x / m };
-}
-
-function pathD(a) {
-  if (a.ctrl) return `M ${a.from.x} ${a.from.y} Q ${a.ctrl.x} ${a.ctrl.y} ${a.to.x} ${a.to.y}`;
-  return `M ${a.from.x} ${a.from.y} L ${a.to.x} ${a.to.y}`;
-}
-
-function arrowLength(a) {
-  let len = 0;
-  let prev = pointAt(a, 0);
-  for (let i = 1; i <= 24; i++) {
-    const p = pointAt(a, i / 24);
-    len += Math.hypot(p.x - prev.x, p.y - prev.y);
-    prev = p;
-  }
-  return len;
-}
-
-/**
- * A dribble is drawn as a wave along the path. The amplitude tapers to zero at
- * both ends so it meets the player cleanly and the arrowhead points true.
- */
-function dribbleD(a) {
-  const steps = 72;
-  const waves = Math.max(2, Math.round(arrowLength(a) / 1.7));
-  const amp = 0.42;
-  const pts = [];
-
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const p = pointAt(a, t);
-    const n = unitNormal(a, t);
-    const taper = Math.sin(Math.PI * t);
-    const off = Math.sin(t * waves * Math.PI * 2) * amp * taper;
-    pts.push(`${(p.x + n.x * off).toFixed(3)} ${(p.y + n.y * off).toFixed(3)}`);
-  }
-  return 'M ' + pts.join(' L ');
-}
-
-/** The bar at the end of a screen, perpendicular to the approach. */
-function screenBarD(a) {
-  const n = unitNormal(a, 1);
-  const L = 1.15;
-  return `M ${a.to.x - n.x * L} ${a.to.y - n.y * L} L ${a.to.x + n.x * L} ${a.to.y + n.y * L}`;
-}
-
-const midpoint = (a) => a.ctrl || pointAt(a, 0.5);
-
-/* ------------------------------------------------------------------ */
 /* Rendering                                                           */
 /* ------------------------------------------------------------------ */
 
-/**
- * Arrowhead markers. `id` must be unique in the document: `url(#ah)` resolves
- * to the first element with that id, wherever it is.
- */
-function defs(id = 'ah') {
-  const d = node('defs');
-  for (const [mid, cls] of [[id, 'ah'], [`${id}-ghost`, 'ah ghost']]) {
-    const m = node('marker', {
-      id: mid,
-      viewBox: '0 0 10 10',
-      refX: 8.5,
-      refY: 5,
-      markerWidth: 5,
-      markerHeight: 5,
-      markerUnits: 'strokeWidth',
-      orient: 'auto-start-reverse',
-    });
-    m.append(node('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: cls }));
-    d.append(m);
-  }
-  return d;
-}
-
-function renderToken(t, ghost = false, still = false) {
-  const g = node('g', {
-    class: `token ${t.kind}${ghost ? ' ghost' : ''}${!still && isSelected('token', t.id) ? ' selected' : ''}${still ? ' anim' : ''}`,
-    transform: `translate(${t.x} ${t.y})`,
-  });
-  if (!ghost && !still) g.setAttribute('data-id', t.id);
-
-  if (t.kind === 'offense') {
-    const player = playerInSlot(t.label, S.lineup, S.roster);
-    g.append(node('circle', { r: TOKEN_R, class: 'tok-body' }));
-    g.append(textNode(tokenGlyph(player, t.label), {
-      class: 'tok-label',
-      'font-size': player && tokenGlyph(player, t.label).length > 2 ? 1.15 : 1.55,
-    }));
-    // The name goes under the token, and only when names are what we're
-    // showing — with jersey or initials mode the glyph already says it all.
-    if (player && CONFIG.nameDisplay === 'full') {
-      g.append(textNode(shortName(player, 'full'), {
-        class: 'tok-name', y: TOKEN_R + 1.05, 'font-size': 1.0,
-      }));
-    }
-  } else if (t.kind === 'defense') {
-    g.append(node('circle', { r: TOKEN_R, class: 'tok-hit' }));
-    g.append(node('path', { d: 'M -0.95 -0.95 L 0.95 0.95 M 0.95 -0.95 L -0.95 0.95', class: 'tok-x' }));
-    if (t.label) g.append(textNode(t.label, { class: 'tok-sub', x: 1.5, y: -1.1, 'font-size': 1.1 }));
-  } else if (t.kind === 'ball') {
-    g.append(node('circle', { r: 0.62, class: 'tok-ball' }));
-  } else if (t.kind === 'cone') {
-    g.append(node('path', { d: 'M 0 -1.15 L 1.05 0.85 L -1.05 0.85 Z', class: 'tok-cone' }));
-  } else if (t.kind === 'coach') {
-    g.append(node('rect', { x: -1.15, y: -1.15, width: 2.3, height: 2.3, rx: 0.35, class: 'tok-body' }));
-    g.append(textNode('C', { class: 'tok-label', 'font-size': 1.4 }));
-  }
-
-  if (t.hasBall && t.kind !== 'ball') {
-    g.append(node('circle', { cx: 1.5, cy: -1.2, r: 0.52, class: 'tok-ball' }));
-  }
-  return g;
-}
-
-function renderArrow(a, ghost = false, markerId = 'ah') {
-  const g = node('g', {
-    class: `arrow ${a.kind}${ghost ? ' ghost' : ''}${isSelected('arrow', a.id) ? ' selected' : ''}`,
-  });
-  if (!ghost) g.setAttribute('data-id', a.id);
-
-  const marker = `url(#${markerId}${ghost ? '-ghost' : ''})`;
-
-  if (a.kind === 'dribble') {
-    g.append(node('path', { d: dribbleD(a), class: 'stroke', 'marker-end': marker }));
-  } else if (a.kind === 'screen') {
-    g.append(node('path', { d: pathD(a), class: 'stroke' }));
-    g.append(node('path', { d: screenBarD(a), class: 'stroke bar' }));
-  } else {
-    g.append(node('path', { d: pathD(a), class: 'stroke', 'marker-end': marker }));
-  }
-
-  // A wide invisible path makes a thin arrow easy to hit, on a mouse or a thumb.
-  if (!ghost) g.append(node('path', { d: pathD(a), class: 'hit' }));
-  return g;
-}
-
-function renderText(t, ghost = false) {
-  const g = node('g', {
-    class: `note${ghost ? ' ghost' : ''}${isSelected('text', t.id) ? ' selected' : ''}`,
-    transform: `translate(${t.x} ${t.y})`,
-  });
-  if (!ghost) g.setAttribute('data-id', t.id);
-  g.append(textNode(t.text, { class: 'note-text', 'font-size': 1.15 }));
-  return g;
-}
+/* The renderers, bound to this editor's selection and lineup. */
+const draw = createDrawer({
+  isSelected: (type, id) => isSelected(type, id),
+  playerFor: (label) => playerInSlot(label, S.lineup, S.roster),
+  nameDisplay: CONFIG.nameDisplay,
+});
+const { renderToken, renderArrow, renderText } = draw;
 
 function renderHandles(layer) {
   if (!S.selection || S.selection.type !== 'arrow') return;
@@ -1502,6 +1342,17 @@ function readPlaybookParam() {
   S.lib.playbook = new URLSearchParams(location.search).get('playbook') || '';
 }
 
+/** Read and remove ?open=<id>, so a reload doesn't keep reopening it. */
+function takeOpenParam() {
+  const q = new URLSearchParams(location.search);
+  const id = q.get('open');
+  if (id == null) return null;
+  q.delete('open');
+  const qs = q.toString();
+  history.replaceState(null, '', qs ? `${location.pathname}?${qs}` : location.pathname);
+  return id;
+}
+
 function writePlaybookParam() {
   const q = new URLSearchParams(location.search);
   if (S.lib.playbook) q.set('playbook', S.lib.playbook);
@@ -1800,6 +1651,123 @@ const printDraw = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Save to opponent playbook                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Admin and coaches with Scouting get the button; nobody else has it at all.
+ * The script refuses anyone else's save regardless.
+ */
+function syncOpponentButton() {
+  $('#p-opponent').hidden = S.viewer || !canSaveOpponentPlays();
+}
+
+let pickerOpener = null;
+
+async function openOpponentPicker(e) {
+  if (S.viewer || !canSaveOpponentPlays()) return;
+  pickerOpener = e && e.currentTarget;
+  const select = $('#opp-game');
+  const status = $('#opp-status');
+  const save = $('#opp-save');
+
+  select.replaceChildren(new Option('Loading games…', ''));
+  select.disabled = true;
+  save.disabled = true;
+  $('#opp-remove').checked = false;
+  status.className = 'small';
+  status.textContent = '';
+  $('#opp-picker').hidden = false;
+  select.focus();
+
+  const res = await fetchSchedule();
+  if ($('#opp-picker').hidden) return;   // closed while loading
+  if (!res.ok) {
+    select.replaceChildren(new Option('—', ''));
+    status.className = 'small missing';
+    status.textContent = res.message;
+    return;
+  }
+
+  const games = pickerGames(res.schedule);
+  select.replaceChildren();
+  if (games.length === 0) {
+    select.append(new Option('No games on the schedule', ''));
+    status.className = 'small muted';
+    status.textContent = 'Add the game to the Games tab first.';
+    return;
+  }
+  const groups = new Map();
+  for (const g of games) {
+    if (!groups.has(g.group)) {
+      const og = document.createElement('optgroup');
+      og.label = g.group;
+      groups.set(g.group, og);
+      select.append(og);
+    }
+    groups.get(g.group).append(new Option(g.label, g.gameId));
+  }
+  select.disabled = false;
+  save.disabled = false;
+  select.focus();
+}
+
+function closeOpponentPicker() {
+  $('#opp-picker').hidden = true;
+  pickerOpener?.focus?.();
+  pickerOpener = null;
+}
+
+async function onSaveOpponentPlay() {
+  const gameId = $('#opp-game').value;
+  if (!gameId) return;
+  const save = $('#opp-save');
+  const status = $('#opp-status');
+  save.disabled = true;
+  save.textContent = 'Saving…';
+
+  // Whatever is on screen right now, including edits the autosave hasn't
+  // written yet.
+  const play = structuredClone(S.play);
+  const result = await saveOpponentPlay(gameId, play);
+  save.textContent = 'Save';
+
+  if (!result.ok) {
+    save.disabled = false;
+    status.className = 'small missing';
+    status.textContent = result.message;
+    return;
+  }
+
+  const removeLocal = $('#opp-remove').checked;
+  closeOpponentPicker();
+
+  if (removeLocal) {
+    deletePlay(play.id);
+    const rest = listPlays();
+    if (rest.length) loadPlay(rest[rest.length - 1]);
+    else { const fresh = newPlay(); savePlay(fresh); loadPlay(fresh); }
+    renderLibraryAll();
+  }
+
+  // Last, because loading a play rewrites this line.
+  const note = $('#publish-note');
+  note.className = 'small';
+  note.textContent = `${result.replaced ? 'Updated' : 'Saved'} “${play.name || 'Untitled play'}” in ${result.opponent}'s scouting report.`
+    + (removeLocal ? ' The copy on this device was removed.' : '');
+}
+
+function bindOpponentPicker() {
+  $('#p-opponent').addEventListener('click', openOpponentPicker);
+  $('#opp-cancel').addEventListener('click', closeOpponentPicker);
+  $('#opp-save').addEventListener('click', onSaveOpponentPlay);
+  // A tap on the dimmed background closes it, like the video player.
+  $('#opp-picker').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeOpponentPicker();
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Collapsible cards                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1903,6 +1871,7 @@ function bind() {
   });
   $('#p-pdf').addEventListener('click', () => printPlay(S.play, printDraw));
   $('#p-publish').addEventListener('click', onPublishClick);
+  bindOpponentPicker();
 
   $('#p-export').addEventListener('click', () => {
     download(`${slugify(S.play.name)}.json`, exportPlay(S.play));
@@ -1953,6 +1922,10 @@ function bind() {
 
   document.addEventListener('keydown', (e) => {
     // The video overlay takes over the keyboard while it is open.
+    if (!$('#opp-picker').hidden) {
+      if (e.key === 'Escape') { e.preventDefault(); closeOpponentPicker(); }
+      return;
+    }
     if (!$('#video-overlay').hidden) {
       if (e.key === 'Escape') { e.preventDefault(); closeVideo(); }
       return;
@@ -2020,9 +1993,12 @@ function init() {
   if (isViewer()) {
     enterViewerMode();
   } else if (listPlays().length) {
-    // Reopen whatever was last worked on rather than a blank floor.
+    // ?open=<id> opens that play (the Scouting page's "Open in builder" sends
+    // you here); otherwise reopen whatever was last worked on.
     const existing = listPlays();
-    const latest = [...existing].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+    const asked = takeOpenParam();
+    const latest = existing.find((p) => p.id === asked)
+      || [...existing].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
     loadPlay(latest);
   } else {
     const play = newPlay();
@@ -2041,12 +2017,14 @@ function init() {
       loadRoster();
       if (canUseAdminBook()) renderAdminBook();
     }
+    syncOpponentButton();
   });
 
   // The script's answer about features arrives after the page has loaded, and
   // can change between visits. Add or take away the admin card to match.
   document.addEventListener('bb:features', () => {
     if (!S.viewer) renderAdminBook();
+    syncOpponentButton();
   });
 }
 

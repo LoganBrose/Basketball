@@ -164,6 +164,8 @@ window.__gateFailsafe = setTimeout(function () {
         <div class="pb-actions">
           <button type="button" class="btn btn-primary" id="p-pdf">Export PDF</button>
           <a class="btn" id="p-publish" href="#" target="_blank" rel="noopener">Publish to team playbook</a>
+          <!-- Shown only to admin and coaches once Scouting is released to them. -->
+          <button type="button" class="btn" id="p-opponent" hidden>Save to opponent playbook</button>
         </div>
         <p class="small muted" id="publish-note"></p>
 
@@ -242,6 +244,25 @@ window.__gateFailsafe = setTimeout(function () {
   <div class="video-box">
     <button type="button" class="btn video-close" id="video-close" aria-label="Close video">✕ Close</button>
     <div class="video-frame" id="video-frame"></div>
+  </div>
+</div>
+
+<!-- Save to opponent playbook: pick the game, and the play goes to that opponent. -->
+<div class="picker-overlay" id="opp-picker" role="dialog" aria-modal="true" aria-labelledby="opp-picker-title" hidden>
+  <div class="card picker-box">
+    <h2 id="opp-picker-title">Save to opponent playbook</h2>
+    <p class="small muted">Pick a game. The play is saved to that opponent, so it shows on every
+      scouting report against them. It never goes into your playbooks.</p>
+    <div class="field">
+      <label for="opp-game">Game</label>
+      <select id="opp-game"></select>
+    </div>
+    <label class="pb-check"><input type="checkbox" id="opp-remove"> Remove the copy on this device after saving</label>
+    <p class="small" id="opp-status" role="status"></p>
+    <div class="pb-actions">
+      <button type="button" class="btn btn-primary" id="opp-save">Save</button>
+      <button type="button" class="btn" id="opp-cancel">Cancel</button>
+    </div>
   </div>
 </div>
 
