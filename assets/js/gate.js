@@ -12,7 +12,7 @@
  */
 
 import { CONFIG } from './config.js';
-import { writeFeatures, clearFeatures, featuresFrom } from './features.js';
+import { writeFeatures, clearFeatures, featuresFrom, hasFeature } from './features.js';
 
 /* The first statement in this module's body, and it has to stay that way.
  *
@@ -424,11 +424,17 @@ function announce(name) {
  */
 function renderNav() {
   const nav = document.querySelector('.site-header .site-nav');
+  if (!nav) return;
+  const gateOn = isEnabled(CONFIG.gate);
   // With sign-in switched off there is no admin to distinguish from anyone
-  // else, so the site is whole again and every link belongs.
-  if (!nav || !(isEnabled(CONFIG.gate) ? hasAdminSession() : true)) return;
+  // else, so the site is whole again and every admin link belongs.
+  if (gateOn ? hasAdminSession() : true) renderAdminLinks(nav);
+  renderFeatureLinks(nav, gateOn);
+}
 
-  const here = (globalThis.location?.pathname || '').split('/').pop() || 'index.html';
+const here = () => (globalThis.location?.pathname || '').split('/').pop() || 'index.html';
+
+function renderAdminLinks(nav) {
   const links = [
     ['index.html', 'Home'],
     ['stats.html', 'Stats'],
@@ -442,7 +448,7 @@ function renderNav() {
     // Safe to run again when the feature list changes: a link is built once.
     if (nav.querySelector(`a[href="${href}"]`)) continue;
     const a = el('a', { text: label, attrs: { href } });
-    if (href === here) a.setAttribute('aria-current', 'page');
+    if (href === here()) a.setAttribute('aria-current', 'page');
     if (href === 'admin.html') nav.append(a);
     else nav.insertBefore(a, nav.firstChild);
   }
@@ -457,6 +463,32 @@ function renderNav() {
   if (footer && !footer.querySelector('a[href="admin.html"]')) {
     footer.append(el('a', { text: 'Admin', attrs: { href: 'admin.html' } }));
   }
+}
+
+/**
+ * Links for staged features, built only when the script has said this login
+ * has the feature — and taken away again when a stage is rolled back. Like the
+ * admin links, a feature nobody has released to you is not hidden: it is
+ * never built.
+ *
+ * Scouting has no data source without the script, so with sign-in off it has
+ * no link either.
+ */
+function renderFeatureLinks(nav, gateOn) {
+  const existing = nav.querySelector('a[href="scouting.html"]');
+  const want = gateOn && hasFeature('scouting');
+  if (!want) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+
+  const a = el('a', { text: 'Scouting', attrs: { href: 'scouting.html' } });
+  if (here() === 'scouting.html') a.setAttribute('aria-current', 'page');
+  // Right after Playbook: Home, Stats, Playbook, Scouting, Admin.
+  const playbook = nav.querySelector('a[href="playbook.html"]');
+  if (playbook) playbook.after(a);
+  else nav.append(a);
 }
 
 function renderSignedIn(name) {

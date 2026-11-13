@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+/* Staged feature. Leave before anything renders unless the script has said
+   this login has Scouting — so for anyone it isn't released to, the page does
+   not exist. Fails closed: missing or unreadable means no.
+   An absent bb.gate.on marker means gate.js has never run in this browser, so
+   leave the decision to the module rather than guessing. This is only the
+   earliest redirect; the script refuses every request regardless. */
+(function () {
+  var ok = false;
+  try {
+    var on = localStorage.getItem('bb.gate.on');
+    if (on === null) {
+      ok = true;
+    } else if (on === '1') {
+      var f = JSON.parse(localStorage.getItem('bb.features.v1') || 'null');
+      ok = !!(f && f.list && f.list.indexOf('scouting') !== -1);
+    }
+  } catch (e) { ok = false; }
+  if (!ok) location.replace('playbook.html');
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scouting</title>
+<meta name="description" content="Scouting reports for upcoming opponents.">
+<script>
+/* Hide the page until gate.js decides whether a sign-in is needed.
+   The timer is the failsafe for one case only: gate.js never loading. It is
+   cancelled by gate.js's first statement, so a slow sign-in cannot reveal the
+   page behind the popup. */
+document.documentElement.classList.add('gated');
+window.__gateFailsafe = setTimeout(function () {
+  document.documentElement.classList.remove('gated');
+}, 3000);
+</script>
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🏀</text></svg>">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="playbook.html">🏀 Coach<span>Tools</span></a>
+    <nav class="site-nav">
+      <a href="playbook.html">Playbook</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap scout-page">
+  <div class="toolbar">
+    <h1 style="margin:0">Scouting</h1>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="scout-refresh">Refresh</button>
+  </div>
+  <p class="lede" id="scout-lede">The next game first. Tap any other game to open its report.</p>
+
+  <div id="scout-root"></div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+  </div>
+</footer>
+
+
+<script type="module" src="assets/js/gate.js"></script>
+<script type="module" src="assets/js/scouting.js"></script>
+</body>
+</html>

@@ -28,6 +28,7 @@ const INCLUDE = [
   'stats.html',
   'playbook.html',
   'admin.html',
+  'scouting.html',
   'assets',
   'data',
   'plays',        // only exists when sign-in is off and plays are published as files

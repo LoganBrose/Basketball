@@ -33,6 +33,10 @@
  *                     Anything else, or unset, means admin: a typo must
  *                     never open a feature up. checkSetup warns about one.
  *
+ *   TIME_ZONE         the time zone scouting dates are judged in, e.g.
+ *                     America/Chicago. Unset uses the script project's own
+ *                     time zone (Project Settings -> Time zone).
+ *
  * The admin playbook has no release setting. It is the admin's alone and the
  * script refuses it to every other token.
  *
@@ -104,6 +108,11 @@ function doPost(e) {
       case 'savePlay': return json(handleSavePlay(body));
       case 'deletePlay': return json(handleDeletePlay(body));
       case 'movePlay': return json(handleMovePlay(body));
+      case 'scoutGames': return json(handleScoutGames(body));
+      case 'scoutReport': return json(handleScoutReport(body));
+      case 'saveScoutPlayer': return json(handleSaveScoutPlayer(body));
+      case 'deleteScoutPlayer': return json(handleDeleteScoutPlayer(body));
+      case 'saveScoutNotes': return json(handleSaveScoutNotes(body));
       case 'check': return json(handleCheck(body));
       case 'signOutAll': return json(handleSignOutAll(body));
       default: return json({ ok: false, reason: 'unknown_action' });
@@ -697,6 +706,452 @@ function findPlayRow(sheet, id) {
   return -1;
 }
 
+/* ------------------------------------------------------------------ */
+/* Scouting                                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Scouting belongs to the OPPONENT, not the game, so a report carries over the
+ * next time we play them. An opponent is identified by its name on the Games
+ * tab, compared trimmed and case-insensitively (opponentKey). Game notes are
+ * the one thing kept per game, on top.
+ *
+ * All four tabs live in the log spreadsheet. The stats spreadsheet is only ever
+ * read: Games supplies the schedule, and nothing here writes to it.
+ *
+ * Private notes have a tab of their own, which only an admin-token code path
+ * ever opens, so no later change that sends "the whole row" from another tab
+ * can leak them.
+ */
+
+var OPPONENTS_SHEET = 'Opponents';
+var OPPONENTS_HEADERS = ['OpponentKey', 'Opponent', 'Overview', 'Updated', 'UpdatedBy'];
+var SCOUT_PLAYERS_SHEET = 'ScoutPlayers';
+var SCOUT_PLAYERS_HEADERS = ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl',
+  'Order', 'Updated', 'UpdatedBy'];
+var SCOUT_GAME_NOTES_SHEET = 'ScoutGameNotes';
+var SCOUT_GAME_NOTES_HEADERS = ['GameId', 'OpponentKey', 'Notes', 'Updated', 'UpdatedBy'];
+var SCOUT_PRIVATE_SHEET = 'ScoutPrivate';
+var SCOUT_PRIVATE_HEADERS = ['OpponentKey', 'Notes', 'Updated', 'UpdatedBy'];
+
+var SCOUT_TABS = [
+  [OPPONENTS_SHEET, OPPONENTS_HEADERS],
+  [SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS],
+  [SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS],
+  [SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS],
+];
+
+/** Players see a report from this many days before the game. */
+var VIEWER_WINDOW_DAYS = 7;
+/** How many finished games the archive lists, newest first. */
+var PAST_GAMES = 30;
+var MAX_SCOUT_PLAYERS = 30;
+var SCOUT_LIMITS = { number: 4, name: 60, position: 20, blurb: 500, notes: 5000, url: 500 };
+var GAMES_CACHE_SECONDS = 120;
+
+/** The Games header cells each column may have; the same lists sheets.js accepts. */
+var GAME_HEADERS = {
+  gameId: ['game id'],
+  date: ['date'],
+  opponent: ['opponent', 'opp'],
+  homeAway: ['home/away', 'h/a', 'home away', 'homeaway'],
+};
+
+/** How an opponent is matched across games: trimmed, spaces collapsed, lowercased. */
+function opponentKey(name) {
+  return String(name == null ? '' : name).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function scoutTimeZone() {
+  return optionalProp('TIME_ZONE').trim() || Session.getScriptTimeZone();
+}
+
+/** Today's date where the team is, as yyyy-MM-dd. */
+function todayKey() {
+  return Utilities.formatDate(new Date(), scoutTimeZone(), 'yyyy-MM-dd');
+}
+
+/** yyyy-MM-dd -> a whole day count, so dates subtract without time zones. */
+function dayNumber(key) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000) : NaN;
+}
+
+/**
+ * A Games date cell as yyyy-MM-dd, or '' when it can't be read.
+ *
+ * The raw value is tried first: Sheets hands a date cell over as a real Date,
+ * whatever the spreadsheet's display format, and it is formatted in the team's
+ * time zone. Text typed as M/D/YYYY or YYYY-MM-DD is the fallback.
+ */
+function gameDateKey(raw, shown) {
+  if (Object.prototype.toString.call(raw) === '[object Date]' && isFinite(raw.getTime())) {
+    return Utilities.formatDate(raw, scoutTimeZone(), 'yyyy-MM-dd');
+  }
+  var text = String(shown == null ? '' : shown).trim();
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (m) return pad4(m[1]) + '-' + pad2(m[2]) + '-' + pad2(m[3]);
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (m) return m[3] + '-' + pad2(m[1]) + '-' + pad2(m[2]);
+  return '';
+}
+
+function pad2(n) { return ('0' + n).slice(-2); }
+function pad4(n) { return ('000' + n).slice(-4); }
+
+/**
+ * Every real game on the Games tab: id, date, opponent and home/away — and
+ * nothing else. Scores never leave this function, so no reply built from it
+ * can carry one.
+ *
+ * Cached for two minutes so a page of reports does not reopen the stats
+ * spreadsheet each time; an edit to Games shows within that.
+ */
+function readGames() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('games');
+  if (cached) return JSON.parse(cached);
+
+  var sheet = SpreadsheetApp.openById(prop('STATS_SHEET_ID')).getSheetByName('Games');
+  var range = sheet ? sheet.getDataRange() : null;
+  var shown = range ? range.getDisplayValues() : [];
+  var raw = range ? range.getValues() : [];
+
+  var col = null;
+  var r = 0;
+  for (; r < shown.length && !col; r++) {
+    var cells = shown[r].map(function (c) { return String(c).trim().toLowerCase(); });
+    if (cells.indexOf('game id') === -1) continue;
+    col = {};
+    for (var field in GAME_HEADERS) {
+      col[field] = -1;
+      for (var h = 0; h < GAME_HEADERS[field].length && col[field] === -1; h++) {
+        col[field] = cells.indexOf(GAME_HEADERS[field][h]);
+      }
+    }
+  }
+
+  var games = [];
+  if (col && col.date !== -1 && col.opponent !== -1) {
+    for (; r < shown.length; r++) {
+      var id = String(shown[r][col.gameId] || '').trim();
+      if (id === '' || /^ex/i.test(id)) continue;
+      var opponent = String(shown[r][col.opponent] || '').replace(/\s+/g, ' ').trim();
+      var date = gameDateKey(raw[r] && raw[r][col.date], shown[r][col.date]);
+      if (opponent === '' || date === '') continue;
+      var ha = col.homeAway === -1 ? '' : String(shown[r][col.homeAway] || '').trim().toLowerCase();
+      games.push({
+        gameId: id,
+        date: date,
+        opponent: opponent,
+        opponentKey: opponentKey(opponent),
+        homeAway: ha === 'home' ? 'Home' : ha === 'away' ? 'Away' : '',
+      });
+    }
+  }
+
+  cache.put('games', JSON.stringify(games), GAMES_CACHE_SECONDS);
+  return games;
+}
+
+/** One game as any login may see it, with how many days away it is. */
+function gameOut(game, today) {
+  return {
+    gameId: game.gameId,
+    date: game.date,
+    opponent: game.opponent,
+    opponentKey: game.opponentKey,
+    homeAway: game.homeAway,
+    daysAway: dayNumber(game.date) - today,
+  };
+}
+
+/**
+ * Which games a login may open, by role:
+ *   - admin and coaches: every game, upcoming or past;
+ *   - viewers: a game from VIEWER_WINDOW_DAYS before it through game day.
+ * A game is upcoming through the end of its day, in the team's time zone.
+ */
+function canOpenGame(who, out) {
+  if (who.role !== 'viewer') return true;
+  return out.daysAway >= 0 && out.daysAway <= VIEWER_WINDOW_DAYS;
+}
+
+/**
+ * The verified login for a scouting request, or null.
+ *
+ * Every refusal — no token, an expired one, a login the feature is not
+ * released to — is the answer an unknown action gets, so nothing about
+ * scouting can be learned from the endpoint without access to it.
+ */
+function scoutWho(body) {
+  var who = rosterChecked(verifyToken(body.token));
+  return who.ok && released('scouting', who) ? who : null;
+}
+
+/** Admin and coaches write scouting; viewers only read. */
+function scoutEditor(who) {
+  return who.role === 'admin' || who.role === 'site';
+}
+
+/** The game a request names, as `who` may see it, or null. */
+function scoutGame(who, gameId) {
+  var games = readGames();
+  var today = dayNumber(todayKey());
+  for (var i = 0; i < games.length; i++) {
+    if (games[i].gameId !== String(gameId || '')) continue;
+    var out = gameOut(games[i], today);
+    // A game outside a viewer's window is answered exactly like a game that
+    // does not exist.
+    return canOpenGame(who, out) ? out : null;
+  }
+  return null;
+}
+
+/**
+ * The schedule: upcoming games in date order, and for admin and coaches the
+ * most recent finished ones for the archive.
+ */
+function handleScoutGames(body) {
+  var who = scoutWho(body);
+  if (!who) return notReleased();
+
+  var today = dayNumber(todayKey());
+  var all = readGames().map(function (g) { return gameOut(g, today); });
+  all.sort(function (a, b) { return a.daysAway - b.daysAway || a.gameId.localeCompare(b.gameId); });
+
+  var upcoming = all.filter(function (g) { return g.daysAway >= 0 && canOpenGame(who, g); });
+  var out = {
+    ok: true,
+    role: who.role === 'site' ? 'coach' : who.role,
+    canEdit: scoutEditor(who),
+    windowDays: VIEWER_WINDOW_DAYS,
+    upcoming: upcoming,
+  };
+  if (who.role !== 'viewer') {
+    out.past = all.filter(function (g) { return g.daysAway < 0; }).reverse().slice(0, PAST_GAMES);
+  }
+  return out;
+}
+
+/**
+ * One game's scouting report, with only the fields this login may see. The
+ * reply is built field by field for each role rather than by removing fields
+ * from whole rows, so a column added later is not sent until someone decides
+ * who should see it.
+ *
+ *   viewer: the game, and key players (number, name, position, blurb, stats link)
+ *   coach:  + overview, game notes, who saved what
+ *   admin:  + private notes
+ */
+function handleScoutReport(body) {
+  var who = scoutWho(body);
+  if (!who) return notReleased();
+  var game = scoutGame(who, body.gameId);
+  if (!game) return { ok: false, reason: 'not_found' };
+
+  var editor = scoutEditor(who);
+  var ss = logSpreadsheet();
+  var players = readScoutPlayers(ss, game.opponentKey).map(function (p) {
+    var out = {
+      id: p.id, number: p.number, name: p.name, position: p.position,
+      blurb: p.blurb, statsUrl: p.statsUrl,
+    };
+    if (editor) { out.order = p.order; out.updated = p.updated; out.updatedBy = p.updatedBy; }
+    return out;
+  });
+
+  var report = {
+    ok: true,
+    role: who.role === 'site' ? 'coach' : who.role,
+    canEdit: editor,
+    game: game,
+    players: players,
+  };
+
+  if (editor) {
+    report.overview = noteOut(findSheetRow(ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS), 0, game.opponentKey), 2);
+    report.gameNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS), 0, game.gameId), 2);
+  }
+  if (who.role === 'admin') {
+    report.privateNotes = noteOut(findSheetRow(ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS), 0, game.opponentKey), 1);
+  }
+  return report;
+}
+
+/** {text, updated, updatedBy} from a notes row whose text is in column `textCol`. */
+function noteOut(found, textCol) {
+  if (!found) return { text: '', updated: '', updatedBy: '' };
+  var row = found.row;
+  return { text: row[textCol], updated: row[textCol + 1], updatedBy: row[textCol + 2] };
+}
+
+/** {index (1-based), row} for the first row whose column `col` equals `value`, or null. */
+function findSheetRow(sheet, col, value) {
+  var values = sheet.getDataRange().getDisplayValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][col]) === String(value)) return { index: i + 1, row: values[i] };
+  }
+  return null;
+}
+
+/** An opponent's key players, in the order the coaches set, then by number. */
+function readScoutPlayers(ss, key) {
+  var values = ensureTab(ss, SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS).getDataRange().getDisplayValues();
+  var players = [];
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    if (!r[0] || r[1] !== key) continue;
+    players.push({
+      id: r[0], number: r[2], name: r[3], position: r[4], blurb: r[5],
+      statsUrl: safeUrl(r[6]), order: Number(r[7]) || 0, updated: r[8], updatedBy: r[9],
+    });
+  }
+  players.sort(function (a, b) {
+    return a.order - b.order || (Number(a.number) || 0) - (Number(b.number) || 0) || a.name.localeCompare(b.name);
+  });
+  return players;
+}
+
+/** An http(s) link, or '' — never javascript:, data: or anything else. */
+function safeUrl(raw) {
+  var text = String(raw == null ? '' : raw).trim();
+  if (text.length > SCOUT_LIMITS.url) return '';
+  return /^https?:\/\/[^\s"<>]+$/i.test(text) ? text : '';
+}
+
+/** Collapse whitespace on a one-line field and cap its length. */
+function oneLine(raw, max) {
+  return String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/** Keep line breaks in a notes field, cap its length. */
+function multiLine(raw, max) {
+  return String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').trim().slice(0, max);
+}
+
+function newScoutId(prefix) {
+  return prefix + Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36);
+}
+
+/**
+ * Add or change one key player. `gameId` says which opponent: the script works
+ * the opponent out from the Games tab, so a request cannot write to an
+ * opponent it made up. Editing a player is only allowed within that opponent.
+ */
+function handleSaveScoutPlayer(body) {
+  var who = scoutWho(body);
+  if (!who || !scoutEditor(who)) return notReleased();
+  var game = scoutGame(who, body.gameId);
+  if (!game) return { ok: false, reason: 'not_found' };
+
+  var p = body.player || {};
+  var player = {
+    number: oneLine(p.number, SCOUT_LIMITS.number),
+    name: oneLine(p.name, SCOUT_LIMITS.name),
+    position: oneLine(p.position, SCOUT_LIMITS.position),
+    blurb: multiLine(p.blurb, SCOUT_LIMITS.blurb),
+    statsUrl: safeUrl(p.statsUrl),
+    order: Math.max(0, Math.min(999, Math.round(Number(p.order) || 0))),
+  };
+  if (player.name === '' && player.number === '') return { ok: false, reason: 'bad_request' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = ensureTab(logSpreadsheet(), SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS);
+    var id = p.id ? String(p.id) : '';
+    var found = id ? findSheetRow(sheet, 0, id) : null;
+    if (id && (!found || found.row[1] !== game.opponentKey)) return { ok: false, reason: 'not_found' };
+
+    if (!found) {
+      var count = readScoutPlayers(logSpreadsheet(), game.opponentKey).length;
+      if (count >= MAX_SCOUT_PLAYERS) return { ok: false, reason: 'too_many' };
+      id = newScoutId('sp-');
+    }
+
+    var row = [
+      id, cellText(game.opponentKey), cellText(player.number), cellText(player.name),
+      cellText(player.position), cellText(player.blurb), cellText(player.statsUrl),
+      player.order, new Date(), cellText(who.name),
+    ];
+    if (found) sheet.getRange(found.index, 1, 1, SCOUT_PLAYERS_HEADERS.length).setValues([row]);
+    else sheet.appendRow(row);
+    return { ok: true, id: id, updatedBy: who.name };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleDeleteScoutPlayer(body) {
+  var who = scoutWho(body);
+  if (!who || !scoutEditor(who)) return notReleased();
+  var game = scoutGame(who, body.gameId);
+  if (!game || !body.id) return { ok: false, reason: 'not_found' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = ensureTab(logSpreadsheet(), SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS);
+    var found = findSheetRow(sheet, 0, body.id);
+    // Already gone is what was asked for. Another opponent's player is not
+    // this request's to touch, and is left exactly where it is.
+    if (found && found.row[1] === game.opponentKey) sheet.deleteRow(found.index);
+    return { ok: true, id: String(body.id) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Save one block of notes:
+ *   overview — about the opponent, kept for every game against them;
+ *   game     — about this game only;
+ *   private  — the admin's own notes on the opponent. Admin only.
+ */
+function handleSaveScoutNotes(body) {
+  var who = scoutWho(body);
+  if (!who || !scoutEditor(who)) return notReleased();
+  var kind = String(body.kind || '');
+  if (kind === 'private' && who.role !== 'admin') return notReleased();
+  if (['overview', 'game', 'private'].indexOf(kind) === -1) return { ok: false, reason: 'bad_request' };
+  var game = scoutGame(who, body.gameId);
+  if (!game) return { ok: false, reason: 'not_found' };
+
+  var text = cellText(multiLine(body.text, SCOUT_LIMITS.notes));
+  var name = cellText(who.name);
+  var now = new Date();
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = logSpreadsheet();
+    var sheet;
+    var key;
+    var row;
+    if (kind === 'overview') {
+      sheet = ensureTab(ss, OPPONENTS_SHEET, OPPONENTS_HEADERS);
+      key = game.opponentKey;
+      row = [cellText(key), cellText(game.opponent), text, now, name];
+    } else if (kind === 'game') {
+      sheet = ensureTab(ss, SCOUT_GAME_NOTES_SHEET, SCOUT_GAME_NOTES_HEADERS);
+      key = game.gameId;
+      row = [cellText(key), cellText(game.opponentKey), text, now, name];
+    } else {
+      sheet = ensureTab(ss, SCOUT_PRIVATE_SHEET, SCOUT_PRIVATE_HEADERS);
+      key = game.opponentKey;
+      row = [cellText(key), text, now, name];
+    }
+
+    var found = findSheetRow(sheet, 0, key);
+    if (found) sheet.getRange(found.index, 1, 1, row.length).setValues([row]);
+    else sheet.appendRow(row);
+    return { ok: true, kind: kind, updatedBy: who.name };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * One failure path for every wrong credential, so the response cannot be used
  * to tell a wrong name from a wrong password.
@@ -1133,7 +1588,8 @@ function checkSetup() {
   // Every tab the script writes to, created if missing. An existing tab is
   // never cleared or rewritten; one whose header row has drifted is reported.
   var log = logSpreadsheet();
-  var tabs = [[SIGNIN_SHEET, SIGNIN_HEADERS], [PLAYS_SHEET, PLAYS_HEADERS], [ADMIN_PLAYS_SHEET, PLAYS_HEADERS]];
+  var tabs = [[SIGNIN_SHEET, SIGNIN_HEADERS], [PLAYS_SHEET, PLAYS_HEADERS], [ADMIN_PLAYS_SHEET, PLAYS_HEADERS]]
+    .concat(SCOUT_TABS);
   for (var t = 0; t < tabs.length; t++) {
     var existed = Boolean(log.getSheetByName(tabs[t][0]));
     var sheet = ensureTab(log, tabs[t][0], tabs[t][1]);
@@ -1160,6 +1616,10 @@ function checkSetup() {
     var tab = stats.getSheetByName(names[i]);
     Logger.log('Stats tab "%s": %s', names[i], tab ? 'found' : 'MISSING');
   }
+
+  CacheService.getScriptCache().remove('games');
+  Logger.log('Scouting dates use the %s time zone; today there is %s. %s game(s) on the Games tab.',
+    scoutTimeZone(), todayKey(), readGames().length);
 
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
   Logger.log('Viewer login is %s.', optionalProp('VIEWER_PASSWORD') ? 'ON' : 'off (VIEWER_PASSWORD not set)');
