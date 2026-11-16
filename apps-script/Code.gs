@@ -486,6 +486,20 @@ function ensureTab(ss, name, headers) {
   return sheet;
 }
 
+/**
+ * Fill in header cells that are blank, for columns added to the end of a tab
+ * after it was made. A cell that already says something is never changed.
+ */
+function extendHeaders(sheet, headers) {
+  var first = (sheet.getDataRange().getDisplayValues()[0] || []).map(function (c) { return String(c || '').trim(); });
+  while (first.length && first[first.length - 1] === '') first.pop();
+  // Only a row that is exactly the start of these headers is extended. A
+  // drifted one is left alone, and checkSetup reports it.
+  if (first.length === 0 || first.length >= headers.length) return;
+  for (var i = 0; i < first.length; i++) if (first[i] !== headers[i]) return;
+  sheet.getRange(1, first.length + 1, 1, headers.length - first.length).setValues([headers.slice(first.length)]);
+}
+
 /** True when a tab's first row starts with exactly these headers. */
 function headersMatch(sheet, headers) {
   var first = sheet.getDataRange().getDisplayValues()[0] || [];
@@ -775,8 +789,11 @@ function findPlayRow(sheet, id) {
 var OPPONENTS_SHEET = 'Opponents';
 var OPPONENTS_HEADERS = ['OpponentKey', 'Opponent', 'Overview', 'Updated', 'UpdatedBy'];
 var SCOUT_PLAYERS_SHEET = 'ScoutPlayers';
+// Height onwards were added later, at the end, so a tab made before them still
+// matches; extendHeaders() fills in their header cells the first time.
+// GuardId and HelpId hold OUR Player ID from the Players tab, never a name.
 var SCOUT_PLAYERS_HEADERS = ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl',
-  'Order', 'Updated', 'UpdatedBy'];
+  'Order', 'Updated', 'UpdatedBy', 'Height', 'Stats', 'GuardId', 'HelpId', 'MatchupNote'];
 // Per-game notes ("This game") were removed. A ScoutGameNotes tab from before
 // that is left exactly as it is; nothing reads or writes it any more.
 var SCOUT_PRIVATE_SHEET = 'ScoutPrivate';
@@ -804,7 +821,46 @@ var VIEWER_WINDOW_DAYS = 7;
 /** How many finished games the archive lists, newest first. */
 var PAST_GAMES = 30;
 var MAX_SCOUT_PLAYERS = 30;
-var SCOUT_LIMITS = { number: 4, name: 60, position: 20, blurb: 500, notes: 5000, url: 500 };
+var SCOUT_LIMITS = { number: 4, name: 60, position: 20, blurb: 500, notes: 5000, url: 500, height: 8, matchup: 200 };
+
+/**
+ * A key player's season line. The same list, and the same cleaning rules, are
+ * in assets/js/scout.js. `pct` fields are 0-100; a decimal under 1 (.38) is
+ * read as a fraction and saved as 38.
+ */
+var SCOUT_STATS = [
+  { key: 'gp' }, { key: 'ppg' }, { key: 'rpg' }, { key: 'apg' }, { key: 'spg' },
+  { key: 'fg', pct: true }, { key: '3p', pct: true }, { key: 'ft', pct: true },
+];
+
+/** One stat as typed, cleaned to a string like "38" or "18.4", or null if it isn't a number in range. */
+function cleanStat(raw, pct) {
+  var text = String(raw == null ? '' : raw).trim().replace(/%$/, '').trim();
+  if (!/^\d*\.?\d+$/.test(text)) return null;
+  var n = Number(text);
+  if (pct && n > 0 && n < 1) n = n * 100;
+  n = Math.round(n * 10) / 10;
+  if (n < 0 || n > (pct ? 100 : 999)) return null;
+  return String(n);
+}
+
+/** {key: "value"} keeping only known stats that clean up; blanks and junk are dropped. */
+function cleanStats(raw) {
+  var src = raw && typeof raw === 'object' ? raw : {};
+  var out = {};
+  for (var i = 0; i < SCOUT_STATS.length; i++) {
+    var f = SCOUT_STATS[i];
+    if (!Object.prototype.hasOwnProperty.call(src, f.key)) continue;
+    var v = cleanStat(src[f.key], f.pct);
+    if (v !== null) out[f.key] = v;
+  }
+  return out;
+}
+
+/** A Stats cell read back: whatever parses and cleans, or {} for a broken cell. */
+function parseStats(cell) {
+  try { return cleanStats(JSON.parse(String(cell || '') || '{}')); } catch (e) { return {}; }
+}
 var GAMES_CACHE_SECONDS = 120;
 
 /** The Games header cells each column may have; the same lists sheets.js accepts. */
@@ -1074,9 +1130,10 @@ function handleScoutGames(body) {
  * who should see it.
  *
  *   viewer: the game, the overview's text, key players (number, name,
- *           position, blurb, stats link) and the opponent's plays
- *   coach:  + who saved what
- *   admin:  + private notes
+ *           position, height, blurb, stats link, season stats, and who
+ *           guards them by name) and the opponent's plays. Read only.
+ *   coach:  + who saved what, editing, and our roster for the matchup lists
+ *   admin:  + private notes. Only an admin reply ever contains them.
  */
 function handleScoutReport(body) {
   var who = scoutWho(body);
@@ -1086,10 +1143,18 @@ function handleScoutReport(body) {
 
   var editor = scoutEditor(who);
   var ss = logSpreadsheet();
+  // Our roster, read once, to turn each matchup's Player IDs into names. A
+  // viewer gets the names of the two defenders and never the roster itself.
+  var roster = rosterPlayers();
+  var byId = {};
+  roster.forEach(function (r) { byId[r.id] = r; });
+  var defender = function (id) { return id && byId[id] ? byId[id] : null; };
+
   var players = readScoutPlayers(ss, game.opponentKey).map(function (p) {
     var out = {
-      id: p.id, number: p.number, name: p.name, position: p.position,
-      blurb: p.blurb, statsUrl: p.statsUrl,
+      id: p.id, number: p.number, name: p.name, position: p.position, height: p.height,
+      blurb: p.blurb, statsUrl: p.statsUrl, stats: p.stats,
+      matchup: { guard: defender(p.guardId), help: defender(p.helpId), note: p.matchupNote },
     };
     if (editor) { out.order = p.order; out.updated = p.updated; out.updatedBy = p.updatedBy; }
     return out;
@@ -1109,6 +1174,8 @@ function handleScoutReport(body) {
     players: players,
     plays: plays,
   };
+  // The dropdowns for "Guarded by" and "Help": editors only.
+  if (editor) report.roster = roster;
 
   // Everyone reads the overview; only editors learn who saved it, as with the
   // key players above.
@@ -1146,6 +1213,9 @@ function readScoutPlayers(ss, key) {
     players.push({
       id: r[0], number: r[2], name: r[3], position: r[4], blurb: r[5],
       statsUrl: safeUrl(r[6]), order: Number(r[7]) || 0, updated: r[8], updatedBy: r[9],
+      // Rows saved before these columns existed have nothing here.
+      height: r[10] || '', stats: parseStats(r[11]), guardId: r[12] || '', helpId: r[13] || '',
+      matchupNote: r[14] || '',
     });
   }
   players.sort(function (a, b) {
@@ -1296,13 +1366,22 @@ function handleSaveScoutPlayer(body) {
     blurb: multiLine(p.blurb, SCOUT_LIMITS.blurb),
     statsUrl: safeUrl(p.statsUrl),
     order: Math.max(0, Math.min(999, Math.round(Number(p.order) || 0))),
+    height: oneLine(p.height, SCOUT_LIMITS.height),
+    stats: cleanStats(p.stats),
+    matchupNote: multiLine(p.matchupNote, SCOUT_LIMITS.matchup),
   };
+  // A defender must be someone on our roster; anything else is stored as none.
+  var rosterIds = rosterPlayers().map(function (r) { return r.id; });
+  var onTeam = function (id) { id = String(id || '').trim(); return rosterIds.indexOf(id) !== -1 ? id : ''; };
+  player.guardId = onTeam(p.guardId);
+  player.helpId = onTeam(p.helpId);
   if (player.name === '' && player.number === '') return { ok: false, reason: 'bad_request' };
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     var sheet = ensureTab(logSpreadsheet(), SCOUT_PLAYERS_SHEET, SCOUT_PLAYERS_HEADERS);
+    extendHeaders(sheet, SCOUT_PLAYERS_HEADERS);
     var id = p.id ? String(p.id) : '';
     var found = id ? findSheetRow(sheet, 0, id) : null;
     if (id && (!found || found.row[1] !== game.opponentKey)) return { ok: false, reason: 'not_found' };
@@ -1317,6 +1396,8 @@ function handleSaveScoutPlayer(body) {
       id, cellText(game.opponentKey), cellText(player.number), cellText(player.name),
       cellText(player.position), cellText(player.blurb), cellText(player.statsUrl),
       player.order, new Date(), cellText(who.name),
+      cellText(player.height), cellText(JSON.stringify(player.stats)), cellText(player.guardId),
+      cellText(player.helpId), cellText(player.matchupNote),
     ];
     if (found) sheet.getRange(found.index, 1, 1, SCOUT_PLAYERS_HEADERS.length).setValues([row]);
     else sheet.appendRow(row);
@@ -1486,6 +1567,57 @@ function rosterNames() {
 
   cache.put('roster', JSON.stringify(names), ROSTER_CACHE_SECONDS);
   return names;
+}
+
+/**
+ * Our players for the scouting matchup: [{id, name, number}], sorted by jersey
+ * number (blank numbers last), then name. Example rows (ID starting EX) and
+ * rows without a Player ID are left out, since a matchup is stored by ID.
+ */
+var ROSTER_NUMBER_HEADERS = ['jersey number', 'number', 'jersey', '#'];
+
+function rosterPlayers() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('rosterPlayers');
+  if (cached) return JSON.parse(cached);
+
+  var out = [];
+  var sheet = SpreadsheetApp.openById(prop('STATS_SHEET_ID')).getSheetByName(ROSTER_TAB);
+  var values = sheet ? sheet.getDataRange().getDisplayValues() : [];
+  var nameCol = -1;
+  var idCol = -1;
+  var numCol = -1;
+  var r = 0;
+  for (; r < values.length && nameCol === -1; r++) {
+    var cells = values[r].map(function (c) { return String(c).trim().toLowerCase(); });
+    for (var h = 0; h < ROSTER_NAME_HEADERS.length && nameCol === -1; h++) {
+      nameCol = cells.indexOf(ROSTER_NAME_HEADERS[h]);
+    }
+    if (nameCol !== -1) {
+      idCol = cells.indexOf('player id');
+      for (var k = 0; k < ROSTER_NUMBER_HEADERS.length && numCol === -1; k++) {
+        numCol = cells.indexOf(ROSTER_NUMBER_HEADERS[k]);
+      }
+    }
+  }
+  if (nameCol !== -1 && idCol !== -1) {
+    for (; r < values.length; r++) {
+      var id = String(values[r][idCol] || '').trim();
+      var name = String(values[r][nameCol] || '').replace(/\s+/g, ' ').trim();
+      if (!id || /^ex/i.test(id) || !name) continue;
+      out.push({ id: id, name: name, number: numCol === -1 ? '' : String(values[r][numCol] || '').trim() });
+    }
+  }
+  out.sort(function (a, b) {
+    var x = a.number === '' ? Infinity : Number(a.number);
+    var y = b.number === '' ? Infinity : Number(b.number);
+    if (isNaN(x)) x = Infinity;
+    if (isNaN(y)) y = Infinity;
+    return (x === y ? 0 : x < y ? -1 : 1) || a.name.localeCompare(b.name);
+  });
+
+  cache.put('rosterPlayers', JSON.stringify(out), ROSTER_CACHE_SECONDS);
+  return out;
 }
 
 function onRoster(name) {
@@ -1831,6 +1963,8 @@ function checkSetup() {
   for (var t = 0; t < tabs.length; t++) {
     var existed = Boolean(log.getSheetByName(tabs[t][0]));
     var sheet = ensureTab(log, tabs[t][0], tabs[t][1]);
+    // Columns added to the end of a tab later get their header cells filled in.
+    if (existed) extendHeaders(sheet, tabs[t][1]);
     if (!existed) Logger.log('Created the "%s" tab.', tabs[t][0]);
     else if (!headersMatch(sheet, tabs[t][1])) {
       Logger.log('WARNING: the "%s" tab\'s first row should be: %s. It was left as it is.',
@@ -1861,6 +1995,7 @@ function checkSetup() {
     'judged in %s; today there is %s. %s game(s) on the Games tab.',
     statsTimeZone() || Session.getScriptTimeZone(), scoutTimeZone(), todayKey(), readGames().length);
 
+  CacheService.getScriptCache().remove('rosterPlayers');
   Logger.log('Admin name is "%s".', cleanName(prop('ADMIN_NAME')));
   Logger.log('Viewer login is %s.', optionalProp('VIEWER_PASSWORD') ? 'ON' : 'off (VIEWER_PASSWORD not set)');
   if (optionalProp('VIEWER_PASSWORD')) {

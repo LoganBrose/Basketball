@@ -68,10 +68,94 @@ export function matchup(game) {
   return game.opponent;
 }
 
-/** "#23 Jay Tall · C", leaving out whatever is blank. */
+/** "#23 Jay Tall · C · 6'5"", leaving out whatever is blank. */
 export function playerTitle(p) {
   const head = [p.number ? `#${p.number}` : '', p.name || ''].filter(Boolean).join(' ');
-  return [head, p.position || ''].filter(Boolean).join(' · ');
+  return [head, p.position || '', p.height || ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * A key player's season line, in the order it reads. `pct` fields are 0-100.
+ * The same list and rules are in Code.gs (SCOUT_STATS, cleanStats): the script
+ * cleans again on save, this copy lets the form point at the wrong box first.
+ */
+export const STAT_FIELDS = [
+  { key: 'gp', label: 'GP' },
+  { key: 'ppg', label: 'PPG' },
+  { key: 'rpg', label: 'RPG' },
+  { key: 'apg', label: 'APG' },
+  { key: 'spg', label: 'SPG' },
+  { key: 'fg', label: 'FG%', pct: true },
+  { key: '3p', label: '3P%', pct: true },
+  { key: 'ft', label: 'FT%', pct: true },
+];
+
+/** One stat as typed → "38", "18.4", '' for blank, or null when it isn't a number in range. */
+export function cleanStat(raw, pct = false) {
+  const text = String(raw ?? '').trim().replace(/%$/, '').trim();
+  if (text === '') return '';
+  if (!/^\d*\.?\d+$/.test(text)) return null;
+  let n = Number(text);
+  // .38 under a percentage is a fraction: the coach means 38%.
+  if (pct && n > 0 && n < 1) n *= 100;
+  n = Math.round(n * 10) / 10;
+  if (n < 0 || n > (pct ? 100 : 999)) return null;
+  return String(n);
+}
+
+/**
+ * Clean a whole stat line. `stats` keeps the known fields that have a value;
+ * `bad` lists the keys that were typed but aren't numbers in range.
+ */
+export function cleanStats(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const stats = {};
+  const bad = [];
+  for (const f of STAT_FIELDS) {
+    if (!Object.hasOwn(src, f.key)) continue;
+    const v = cleanStat(src[f.key], f.pct);
+    if (v === null) bad.push(f.key);
+    else if (v !== '') stats[f.key] = v;
+  }
+  return { stats, bad };
+}
+
+/** "12 GP · 18.4 PPG · 38% 3P", leaving out blanks; '' when there are none. */
+export function statLine(stats) {
+  const s = stats || {};
+  return STAT_FIELDS
+    .filter((f) => s[f.key] !== undefined && s[f.key] !== '')
+    .map((f) => (f.pct ? `${s[f.key]}% ${f.label.replace('%', '')}` : `${s[f.key]} ${f.label}`))
+    .join(' · ');
+}
+
+/** One of our players as a dropdown and the matchup line show them: "#12 John Smith". */
+export const rosterLabel = (r) => (r ? [r.number ? `#${r.number}` : '', r.name || ''].filter(Boolean).join(' ') : '');
+
+/** Our roster by jersey number (blank or odd numbers last), then name. */
+export function sortByJersey(roster = []) {
+  const num = (r) => {
+    const n = String(r.number ?? '').trim() === '' ? NaN : Number(r.number);
+    return Number.isFinite(n) ? n : Infinity;
+  };
+  return [...roster].sort((a, b) => {
+    const x = num(a);
+    const y = num(b);
+    return (x === y ? 0 : x < y ? -1 : 1) || String(a.name || '').localeCompare(String(b.name || ''));
+  });
+}
+
+/**
+ * "Guarded by #12 John Smith (help: #7 Jane Doe)", "Help: #7 Jane Doe" with
+ * only a help defender, or '' when nobody is set.
+ */
+export function matchupText(m) {
+  const guard = rosterLabel(m?.guard);
+  const help = rosterLabel(m?.help);
+  if (guard && help) return `Guarded by ${guard} (help: ${help})`;
+  if (guard) return `Guarded by ${guard}`;
+  if (help) return `Help: ${help}`;
+  return '';
 }
 
 /**

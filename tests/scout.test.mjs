@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   groupGames, dateParts, whenText, matchup, playerTitle, statsLink, savedText, scoutMessage,
+  STAT_FIELDS, cleanStat, cleanStats, statLine, rosterLabel, sortByJersey, matchupText,
 } from '../assets/js/scout.js';
 
 const g = (gameId, daysAway, over = {}) => ({ gameId, daysAway, date: '2026-11-20', opponent: 'North', homeAway: 'Away', ...over });
@@ -112,4 +113,67 @@ test('the head script sends anyone without Scouting back to the playbook before 
 test('the build publishes the Scouting page', () => {
   const build = readFileSync(new URL('../tools/build-site.mjs', import.meta.url), 'utf8');
   assert.match(build, /'scouting\.html'/);
+});
+
+/* ---------------------------------------------------------------- */
+/* Stats, height and the matchup                                     */
+/* ---------------------------------------------------------------- */
+
+test('height goes after the position in a player\'s title', () => {
+  assert.equal(playerTitle({ number: '23', name: 'Jay Tall', position: 'C', height: `6'5"` }), `#23 Jay Tall · C · 6'5"`);
+  assert.equal(playerTitle({ name: 'Jay Tall', height: '6-1' }), 'Jay Tall · 6-1');
+});
+
+test('a percentage typed as a decimal under 1 becomes a whole percentage', () => {
+  assert.equal(cleanStat('.38', true), '38');
+  assert.equal(cleanStat('0.385', true), '38.5');
+  assert.equal(cleanStat('38%', true), '38');
+  assert.equal(cleanStat('1', true), '1', '1 is 1%, not 100%');
+  assert.equal(cleanStat('0', true), '0');
+  assert.equal(cleanStat('.5', false), '0.5', 'per-game stats are never scaled');
+  assert.equal(cleanStat('18.44'), '18.4');
+  assert.equal(cleanStat(''), '');
+  assert.equal(cleanStat('150', true), null);
+  assert.equal(cleanStat('abc'), null);
+  assert.equal(cleanStat('-3'), null);
+});
+
+test('cleanStats keeps known fields, drops blanks and unknown keys, and names the bad boxes', () => {
+  assert.deepEqual(cleanStats({ ppg: '18.4', fg: '.512', '3p': '', ft: 'abc', rpg: '200.5', x: '9' }),
+    { stats: { ppg: '18.4', rpg: '200.5', fg: '51.2' }, bad: ['ft'] });
+  assert.deepEqual(cleanStats({ rpg: '1000' }), { stats: {}, bad: ['rpg'] });
+  assert.deepEqual(cleanStats(null), { stats: {}, bad: [] });
+});
+
+test('the page and the script agree on the stat list', () => {
+  const gs = readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8');
+  const block = gs.match(/var SCOUT_STATS = \[([\s\S]*?)\];/)[1];
+  const keys = [...block.matchAll(/key: '([^']+)'(, pct: true)?/g)].map((m) => `${m[1]}${m[2] ? '%' : ''}`);
+  assert.deepEqual(keys, STAT_FIELDS.map((f) => `${f.key}${f.pct ? '%' : ''}`));
+});
+
+test('the stat line reads in order and leaves blanks out', () => {
+  assert.equal(statLine({ '3p': '38', ppg: '18.4', gp: '12', rpg: '6.1' }), '12 GP · 18.4 PPG · 6.1 RPG · 38% 3P');
+  assert.equal(statLine({ fg: '51.2', ft: '70' }), '51.2% FG · 70% FT');
+  assert.equal(statLine({}), '');
+  assert.equal(statLine(undefined), '');
+});
+
+test('the matchup line names the defender and the help', () => {
+  const john = { id: 'P2', name: 'John Smith', number: '12' };
+  const jane = { id: 'P3', name: 'Jane Doe', number: '7' };
+  assert.equal(matchupText({ guard: john, help: jane }), 'Guarded by #12 John Smith (help: #7 Jane Doe)');
+  assert.equal(matchupText({ guard: john, help: null }), 'Guarded by #12 John Smith');
+  assert.equal(matchupText({ guard: null, help: jane }), 'Help: #7 Jane Doe');
+  assert.equal(matchupText({ guard: null, help: null, note: 'x' }), '');
+  assert.equal(matchupText(undefined), '');
+  assert.equal(rosterLabel({ name: 'No Number', number: '' }), 'No Number');
+});
+
+test('our roster sorts by jersey number, blanks last', () => {
+  const sorted = sortByJersey([
+    { name: 'C', number: '23' }, { name: 'Z', number: '' }, { name: 'A', number: '4' }, { name: 'B', number: '12' },
+    { name: 'Y', number: 'xx' }, { name: 'Zero', number: '0' },
+  ]);
+  assert.deepEqual(sorted.map((r) => r.name), ['Zero', 'A', 'B', 'C', 'Y', 'Z']);
 });

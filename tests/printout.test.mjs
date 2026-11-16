@@ -68,6 +68,21 @@ test('stats links print as text, and only web links print at all', () => {
   ]);
 });
 
+test('height, the stat line and the matchup print under each key player', () => {
+  const m = scoutPrintModel({
+    ok: true, game,
+    players: [{
+      number: '23', name: 'Jay Tall', position: 'C', height: `6'5"`,
+      stats: { ppg: '18.4', '3p': '38' },
+      matchup: { guard: { id: 'P2', name: 'John Smith', number: '12' }, help: { id: 'P3', name: 'Jane Doe', number: '7' }, note: 'Force left.' },
+    }, { name: 'Sam Quick' }],
+  });
+  assert.deepEqual(m.players.map((p) => [p.title, p.statLine, p.matchup, p.matchupNote]), [
+    [`#23 Jay Tall · C · 6'5"`, '18.4 PPG · 38% 3P', 'Guarded by #12 John Smith (help: #7 Jane Doe)', 'Force left.'],
+    ['Sam Quick', '', '', ''],
+  ]);
+});
+
 test('each opponent play keeps its drawing and its name', () => {
   const m = scoutPrintModel(adminReport);
   assert.equal(m.plays[0].name, 'Box Set');

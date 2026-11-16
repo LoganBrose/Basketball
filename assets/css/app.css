@@ -1269,6 +1269,15 @@ details.scout-group .panel-body { font-size: inherit; }
 .scout-player:last-child { border-bottom: 0; }
 .scout-player-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .scout-player .play-actions { padding: 6px 0 0; }
+.scout-stats { margin: 4px 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.scout-matchup { margin: 4px 0; color: var(--accent); font-weight: 600; }
+.scout-matchup-note { margin: 2px 0 4px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.scout-form-label { margin: 12px 0 4px; font-size: 0.9rem; }
+.scout-stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+@media (min-width: 560px) { .scout-stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.scout-stats-grid input { width: 100%; }
+.scout-form [aria-invalid] { border-color: var(--danger); }
+.scout-form select { width: 100%; }
 
 .scout-form { margin: 8px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .scout-form textarea { margin-bottom: 4px; }
