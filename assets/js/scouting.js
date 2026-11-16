@@ -16,6 +16,7 @@ import { callScript, isEnabled, bestToken, readSession, sessionValid, siteMaxAge
 import { hasFeature } from './features.js';
 import {
   groupGames, dateParts, whenText, matchup, playerTitle, statsLink, savedText, scoutMessage,
+  STAT_FIELDS, cleanStats, statLine, matchupText, rosterLabel, sortByJersey,
 } from './scout.js';
 import { mountPlayViewer } from './playviewer.js';
 import { deleteOpponentPlay } from './opponentplays.js';
@@ -182,7 +183,8 @@ async function loadReport(host, gameId) {
 function renderReport(host, r) {
   host.replaceChildren();
   const reload = () => loadReport(host, r.game.gameId);
-  const ctx = { gameId: r.game.gameId, canEdit: r.canEdit, reload };
+  // `roster` (our players, for the matchup dropdowns) only ever arrives for editors.
+  const ctx = { gameId: r.game.gameId, canEdit: r.canEdit, reload, roster: sortByJersey(r.roster || []) };
 
   // Prints exactly what this login was sent: a coach's PDF has no private
   // notes because a coach's report never had any.
@@ -359,6 +361,13 @@ function playerItem(ctx, p) {
     }));
   }
   li.append(top);
+
+  // Plain text for everyone; a player's view stops here, with no controls.
+  const stats = statLine(p.stats);
+  if (stats) li.append(el('p', { class: 'scout-stats', text: stats }));
+  const guard = matchupText(p.matchup);
+  if (guard) li.append(el('p', { class: 'scout-matchup', text: guard }));
+  if (p.matchup?.note) li.append(el('p', { class: 'scout-matchup-note small', text: p.matchup.note }));
   if (p.blurb) li.append(el('p', { class: 'scout-text', text: p.blurb }));
 
   if (ctx.canEdit) {
@@ -391,6 +400,38 @@ function playerForm(ctx, p, onCancel) {
   const number = input({ type: 'text', maxlength: '4', inputmode: 'numeric', placeholder: '23' }, p.number);
   const name = input({ type: 'text', maxlength: '60', placeholder: 'Full name' }, p.name);
   const position = input({ type: 'text', maxlength: '20', placeholder: 'G, F, C…' }, p.position);
+  const height = input({ type: 'text', maxlength: '8', placeholder: `6'5"` }, p.height);
+
+  // Stats: text boxes with the decimal keypad. type=number would refuse ".38"
+  // on some phones and hide what was typed when it isn't a number.
+  const statInputs = {};
+  const statGrid = el('div', { class: 'scout-stats-grid' });
+  for (const f of STAT_FIELDS) {
+    const box = input({
+      type: 'text', inputmode: 'decimal', maxlength: '6', autocomplete: 'off',
+      placeholder: f.pct ? '38' : '0.0', 'aria-label': f.label,
+    }, p.stats?.[f.key] ?? '');
+    statInputs[f.key] = box;
+    statGrid.append(field(f.label, box));
+  }
+
+  // Matchup: our players, by jersey number. Stored by Player ID.
+  const pick = (label, current) => {
+    const sel = el('select', { attrs: { 'aria-label': label } });
+    if (ctx.roster.length === 0) {
+      sel.append(el('option', { text: 'No roster found', attrs: { value: '' } }));
+      sel.disabled = true;
+      return sel;
+    }
+    sel.append(el('option', { text: '—', attrs: { value: '' } }));
+    for (const r of ctx.roster) sel.append(el('option', { text: rosterLabel(r), attrs: { value: r.id } }));
+    sel.value = current?.id && ctx.roster.some((r) => r.id === current.id) ? current.id : '';
+    return sel;
+  };
+  const guard = pick('Guarded by', p.matchup?.guard);
+  const help = pick('Help', p.matchup?.help);
+  const matchupNote = el('textarea', { attrs: { rows: '2', maxlength: '200', placeholder: 'Deny the catch, force left.' } });
+  matchupNote.value = p.matchup?.note || '';
   const blurb = el('textarea', { attrs: { rows: '3', maxlength: '500', placeholder: 'Left-handed. Wants to drive middle.' } });
   blurb.value = p.blurb || '';
   const stats = input({ type: 'url', maxlength: '500', inputmode: 'url', placeholder: 'https://www.maxpreps.com/…' }, p.statsUrl);
@@ -404,6 +445,15 @@ function playerForm(ctx, p, onCancel) {
       status.textContent = "That stats link isn't a web address. It should start with https://";
       return;
     }
+    const typedStats = Object.fromEntries(STAT_FIELDS.map((f) => [f.key, statInputs[f.key].value]));
+    const cleaned = cleanStats(typedStats);
+    for (const f of STAT_FIELDS) statInputs[f.key].toggleAttribute('aria-invalid', cleaned.bad.includes(f.key));
+    if (cleaned.bad.length) {
+      const names = STAT_FIELDS.filter((f) => cleaned.bad.includes(f.key)).map((f) => f.label).join(', ');
+      status.className = 'small missing';
+      status.textContent = `Check ${names}: numbers only, percentages 0–100 (.38 counts as 38%).`;
+      return;
+    }
     save.disabled = true;
     save.textContent = 'Saving…';
     const result = await call('saveScoutPlayer', {
@@ -411,6 +461,8 @@ function playerForm(ctx, p, onCancel) {
       player: {
         id: p.id || undefined, number: number.value, name: name.value, position: position.value,
         blurb: blurb.value, statsUrl: url, order: p.order || 0,
+        height: height.value, stats: cleaned.stats,
+        guardId: guard.value, helpId: help.value, matchupNote: matchupNote.value,
       },
     });
     if (refused(result)) { leave(); return; }
@@ -426,9 +478,15 @@ function playerForm(ctx, p, onCancel) {
   }, 'btn btn-primary');
 
   const form = el('div', { class: 'scout-form scout-player-form' },
-    el('div', { class: 'pb-two' }, field('Number', number), field('Position', position)),
-    field('Name', name),
+    el('div', { class: 'pb-two' }, field('Number', number), field('Name', name)),
+    el('div', { class: 'pb-two' }, field('Position', position), field('Height', height)),
     field('Blurb', blurb),
+    el('h4', { class: 'scout-form-label', text: 'Season stats' }),
+    statGrid,
+    el('p', { class: 'small muted', text: 'Leave any blank. Percentages as 38 or .38.' }),
+    el('h4', { class: 'scout-form-label', text: 'Matchup' }),
+    el('div', { class: 'pb-two' }, field('Guarded by', guard), field('Help', help)),
+    field('Matchup note', matchupNote),
     field('Stats link', stats),
     el('p', { class: 'small muted', text: 'Any page with their stats, such as MaxPreps or a league site. The link is stored; nothing is fetched from it.' }),
     el('div', { class: 'pb-actions' }, save, button('Cancel', onCancel)),

@@ -13,7 +13,7 @@
 
 import { courtSize, renderCourt, SVG_NS } from './court.js';
 import { safeVideoUrl } from './library.js';
-import { dateParts, matchup, playerTitle } from './scout.js';
+import { dateParts, matchup, playerTitle, statLine, matchupText } from './scout.js';
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -172,6 +172,9 @@ export function scoutPrintModel(report) {
 
   const players = (report.players || []).map((p) => ({
     title: playerTitle(p),
+    statLine: statLine(p.stats),
+    matchup: matchupText(p.matchup),
+    matchupNote: p.matchup?.note || '',
     blurb: p.blurb || '',
     // Paper has no buttons: the link itself is printed, and only a web link.
     stats: safeVideoUrl(p.statsUrl),
@@ -208,6 +211,9 @@ function scoutSection(model) {
     for (const p of model.players) {
       const li = el('li');
       li.append(el('strong', null, p.title));
+      if (p.statLine) li.append(el('p', 'print-scout-statline', p.statLine));
+      if (p.matchup) li.append(el('p', 'print-scout-matchup', p.matchup));
+      if (p.matchupNote) li.append(el('p', null, p.matchupNote));
       if (p.blurb) li.append(el('p', null, p.blurb));
       if (p.stats) li.append(el('p', 'print-scout-link', `Stats: ${p.stats}`));
       list.append(li);

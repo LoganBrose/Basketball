@@ -158,7 +158,7 @@ export function loadCodeGs(props = {}, { now = null } = {}) {
     'handlePlays', 'handlePlay', 'handleSavePlay', 'handleDeletePlay', 'handleMovePlay', 'playsSheet',
     'stageOf', 'released', 'featuresFor', 'cellText', 'ensureTab', 'checkSetup',
     'handleScoutGames', 'handleScoutReport', 'handleSaveScoutPlayer', 'handleDeleteScoutPlayer',
-    'handleSaveScoutNotes', 'handleSaveOpponentPlay', 'handleDeleteOpponentPlay', 'readGames', 'gameDateKey', 'opponentKey', 'todayKey',
+    'handleSaveScoutNotes', 'handleSaveOpponentPlay', 'handleDeleteOpponentPlay', 'cleanStats', 'rosterPlayers', 'readGames', 'gameDateKey', 'opponentKey', 'todayKey',
     'handleCheck', 'handleSignOutAll', 'readActiveSessions',
     'makeToken', 'verifyToken', 'cleanName', 'constantTimeEquals', 'readSignIns',
   ];

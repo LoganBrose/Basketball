@@ -229,7 +229,8 @@ test('a viewer gets the game, the overview text and the key players, and no priv
   const r = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' });
   assert.deepEqual(Object.keys(r).sort(), ['canEdit', 'game', 'ok', 'overview', 'players', 'plays', 'role']);
   assert.deepEqual(r.overview, { text: 'Full-court press after makes.' }, 'the text only, not who saved it');
-  assert.deepEqual(Object.keys(r.players[0]).sort(), ['blurb', 'id', 'name', 'number', 'position', 'statsUrl']);
+  assert.deepEqual(Object.keys(r.players[0]).sort(),
+    ['blurb', 'height', 'id', 'matchup', 'name', 'number', 'position', 'stats', 'statsUrl']);
   assert.equal(r.players[0].statsUrl, 'https://www.maxpreps.com/x');
   assert.doesNotMatch(JSON.stringify(r), /old sets|Casey/);
 });
@@ -402,7 +403,7 @@ test('checkSetup creates the scouting tabs with headers and never touches existi
   const ctx = ctxWith();
   ctx.fns.checkSetup();
   assert.deepEqual(ctx.sheets.Opponents.rows[0], ['OpponentKey', 'Opponent', 'Overview', 'Updated', 'UpdatedBy']);
-  assert.deepEqual(ctx.sheets.ScoutPlayers.rows[0], ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl', 'Order', 'Updated', 'UpdatedBy']);
+  assert.deepEqual(ctx.sheets.ScoutPlayers.rows[0], ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl', 'Order', 'Updated', 'UpdatedBy', 'Height', 'Stats', 'GuardId', 'HelpId', 'MatchupNote']);
   assert.deepEqual(ctx.sheets.ScoutPrivate.rows[0], ['OpponentKey', 'Notes', 'Updated', 'UpdatedBy']);
 
   seed(ctx);
@@ -433,4 +434,170 @@ test('admin tokens also see the schedule a day at a time as it passes', () => {
   ctx.clock.now = NOW + DAY;
   ctx.cache.delete('games');
   assert.equal(ctx.fns.handleScoutGames({ token: ctx.admin }).upcoming[0].gameId, 'G06');
+});
+
+/* ---------------------------------------------------------------- */
+/* Stats, height and the defensive matchup                           */
+/* ---------------------------------------------------------------- */
+
+/** Our roster, out of jersey order on the sheet, with the viewer login 'Parent' still on it. */
+function rosterTab(ctx) {
+  ctx.sheets.Players = tabFor([
+    ['Players', '', '', ''],
+    ['Player ID', 'Full Name', 'Jersey Number', 'Position'],
+    ['EX1', 'Example Player', '00', 'G'],
+    ['P1', 'Parent', '23', 'G'],
+    ['P2', 'John Smith', '12', 'PG'],
+    ['P3', 'Jane Doe', '4', 'SF'],
+    ['P4', 'No Number', '', 'C'],
+  ]);
+  ctx.cache.delete('rosterPlayers');
+  ctx.cache.delete('roster');
+}
+
+const FULL = {
+  number: '23', name: 'Jay Tall', position: 'C', height: `6'5"`,
+  stats: { gp: '12', ppg: '18.4', rpg: '6.10', fg: '.512', '3p': '38%', ft: '0.7', bogus: '9' },
+  guardId: 'P2', helpId: 'P3', matchupNote: 'Deny the catch, force left.',
+};
+
+test('stats, height and the matchup are saved and come back for every role', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  assert.equal(ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId: 'G03', player: FULL }).ok, true);
+
+  for (const token of [ctx.admin, ctx.coach, ctx.viewer]) {
+    const p = ctx.fns.handleScoutReport({ token, gameId: 'G03' }).players[0];
+    assert.equal(p.height, `6'5"`);
+    assert.deepEqual(p.stats, { gp: '12', ppg: '18.4', rpg: '6.1', fg: '51.2', '3p': '38', ft: '70' });
+    assert.deepEqual(p.matchup, {
+      guard: { id: 'P2', name: 'John Smith', number: '12' },
+      help: { id: 'P3', name: 'Jane Doe', number: '4' },
+      note: 'Deny the catch, force left.',
+    });
+  }
+});
+
+test('a percentage typed as a decimal under 1 is saved as a whole percentage', () => {
+  const ctx = ctxWith();
+  assert.deepEqual(ctx.fns.cleanStats({ fg: '.38', '3p': '0.385', ft: '1', ppg: '.5', rpg: '0' }),
+    { fg: '38', '3p': '38.5', ft: '1', ppg: '0.5', rpg: '0' });
+  assert.deepEqual(ctx.fns.cleanStats({ fg: '150', ppg: 'abc', apg: '-2', spg: '1e3', gp: '' }), {});
+  assert.deepEqual(ctx.fns.cleanStats(null), {});
+});
+
+test('a defender must be on our roster; anything else is stored as nobody', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId: 'G03', player: { name: 'A', guardId: 'EX1', helpId: 'P99' } });
+  const row = ctx.sheets.ScoutPlayers.rows[1];
+  assert.equal(row[12], '');
+  assert.equal(row[13], '');
+  const p = ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' }).players[0];
+  assert.deepEqual(p.matchup, { guard: null, help: null, note: '' });
+});
+
+test('a defender taken off the roster drops out of the matchup without breaking the report', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId: 'G03', player: FULL });
+  ctx.sheets.Players.rows.splice(4, 1);   // John Smith, P2
+  ctx.cache.delete('rosterPlayers');
+  const p = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' }).players[0];
+  assert.equal(p.matchup.guard, null);
+  assert.equal(p.matchup.help.name, 'Jane Doe');
+});
+
+test('the roster for the dropdowns goes to admin and coaches only, sorted by jersey number', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  for (const token of [ctx.admin, ctx.coach]) {
+    const r = ctx.fns.handleScoutReport({ token, gameId: 'G03' });
+    assert.deepEqual(r.roster.map((x) => x.number), ['4', '12', '23', ''], 'numeric order, blanks last, no EX rows');
+  }
+  const v = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' });
+  assert.equal('roster' in v, false);
+  assert.doesNotMatch(JSON.stringify(v), /No Number/);
+});
+
+test('a broken Stats cell, or a row from before these columns, reads as empty', () => {
+  const ctx = ctxWith();
+  ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' });   // creates the tab
+  ctx.sheets.ScoutPlayers.appendRow(['sp-a', 'north', '1', 'Old Row', '', '', '', 0, '', '']);
+  ctx.sheets.ScoutPlayers.appendRow(['sp-b', 'north', '2', 'Bad Cell', '', '', '', 0, '', '', '', '{not json', '', '', '']);
+  const players = ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' }).players;
+  for (const p of players) {
+    assert.deepEqual(p.stats, {});
+    assert.equal(p.height, '');
+    assert.deepEqual(p.matchup, { guard: null, help: null, note: '' });
+  }
+});
+
+test('a tab made before the new columns gets their headers filled in, and nothing else changes', () => {
+  const ctx = ctxWith();
+  const old = ['Id', 'OpponentKey', 'Number', 'Name', 'Position', 'Blurb', 'StatsUrl', 'Order', 'Updated', 'UpdatedBy'];
+  ctx.sheets.ScoutPlayers = tabFor([old.slice(), ['sp-a', 'north', '1', 'Old Row', 'G', '', '', 0, '', '']]);
+  ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId: 'G03', player: { name: 'New', height: '6-1' } });
+  assert.deepEqual(ctx.sheets.ScoutPlayers.rows[0], [...old, 'Height', 'Stats', 'GuardId', 'HelpId', 'MatchupNote']);
+  assert.deepEqual(ctx.sheets.ScoutPlayers.rows[1], ['sp-a', 'north', '1', 'Old Row', 'G', '', '', 0, '', '']);
+  assert.equal(ctx.fns.handleScoutReport({ token: ctx.coach, gameId: 'G03' }).players.find((p) => p.name === 'New').height, '6-1');
+});
+
+test('height and the matchup note that look like formulas are stored as text, and are capped', () => {
+  const ctx = ctxWith();
+  ctx.fns.handleSaveScoutPlayer({ token: ctx.coach, gameId: 'G03', player: { name: 'A', height: '=1+1', matchupNote: '+x'.repeat(300) } });
+  const row = ctx.sheets.ScoutPlayers.rows[1];
+  assert.match(String(row[10]), /^'=/);
+  assert.match(String(row[14]), /^'\+/);
+  assert.equal(String(row[14]).length, 201);
+});
+
+/* ---------------------------------------------------------------- */
+/* Players are read-only; private notes stay with the admin           */
+/* ---------------------------------------------------------------- */
+
+test('a viewer cannot save or delete anything in scouting, and no row changes', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  seed(ctx);
+  ctx.fns.handleSaveOpponentPlay({ token: ctx.coach, gameId: 'G03', play: { id: 'p1', name: 'Box', frames: [{}] } });
+  const id = ctx.sheets.ScoutPlayers.rows[1][0];
+  const playId = ctx.sheets.OpponentPlays.rows[1][0];
+  const snap = () => JSON.stringify(['ScoutPlayers', 'Opponents', 'ScoutPrivate', 'OpponentPlays'].map((t) => ctx.sheets[t].rows));
+  const before = snap();
+
+  const tries = [
+    ctx.fns.handleSaveScoutPlayer({ token: ctx.viewer, gameId: 'G03', player: { ...FULL, id, name: 'Hacked' } }),
+    ctx.fns.handleSaveScoutPlayer({ token: ctx.viewer, gameId: 'G03', player: { name: 'New one' } }),
+    ctx.fns.handleDeleteScoutPlayer({ token: ctx.viewer, gameId: 'G03', id }),
+    ctx.fns.handleSaveScoutNotes({ token: ctx.viewer, gameId: 'G03', kind: 'overview', text: 'x' }),
+    ctx.fns.handleSaveScoutNotes({ token: ctx.viewer, gameId: 'G03', kind: 'private', text: 'x' }),
+    ctx.fns.handleSaveOpponentPlay({ token: ctx.viewer, gameId: 'G03', play: { id: 'p1', name: 'x', frames: [] } }),
+    ctx.fns.handleDeleteOpponentPlay({ token: ctx.viewer, gameId: 'G03', id: playId }),
+    post(ctx.fns, { action: 'saveScoutPlayer', token: ctx.viewer, gameId: 'G03', player: { id, name: 'Hacked' } }),
+  ];
+  for (const r of tries) assert.deepEqual(r, HIDDEN);
+  assert.equal(snap(), before);
+  assert.equal(ctx.fns.handleScoutReport({ token: ctx.viewer, gameId: 'G03' }).canEdit, false);
+});
+
+test('private notes are never sent to a coach or a viewer, by any scouting reply', () => {
+  const ctx = ctxWith();
+  rosterTab(ctx);
+  seed(ctx);
+  const secret = /old sets/;
+  for (const token of [ctx.coach, ctx.viewer]) {
+    const replies = [
+      ctx.fns.handleScoutGames({ token }),
+      ctx.fns.handleScoutReport({ token, gameId: 'G03' }),
+      post(ctx.fns, { action: 'scoutGames', token }),
+      post(ctx.fns, { action: 'scoutReport', token, gameId: 'G03' }),
+    ];
+    for (const r of replies) {
+      assert.equal(r.ok, true);
+      assert.equal('privateNotes' in r, false);
+      assert.doesNotMatch(JSON.stringify(r), secret);
+    }
+  }
+  assert.match(JSON.stringify(post(ctx.fns, { action: 'scoutReport', token: ctx.admin, gameId: 'G03' })), secret);
 });

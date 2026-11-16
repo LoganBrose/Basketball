@@ -361,9 +361,27 @@ feature](#releasing-a-feature)). It starts at **admin only**.
 | Section | What it is | Admin | Coaches | Players |
 |---|---|---|---|---|
 | **About *opponent*** | Notes on the team: kept for **every** game against them | read + edit | read + edit | **read** |
-| **Key players** | Number, name, position, a short blurb, and a **View stats** button | read + edit | read + edit | **read** |
+| **Key players** | Number, name, position, height, a short blurb, a **season stat line**, the **matchup** (*Guarded by* and an optional *Help* defender from our roster, plus a note), and a **View stats** button | read + edit | read + edit | **read** |
 | **Private notes** | Your own notes on the opponent | read + edit | — | — |
 | **Their plays** | The opponent's plays, drawn in the play builder. Step through them and press ▶ Play, as with ours | read + remove | read + remove | **read** |
+
+**Who sees what is decided by the script, not the page.** Each login is sent only what it may see:
+
+- **Admin:** everything, including private notes, editing and the PDF export.
+- **Coach:** the full report, editing and the PDF, but **private notes are never sent** to a coach login at all.
+- **Player:** a read-only report (stat line, height and *Guarded by …* as plain text, with no forms or buttons)
+  from 7 days before the game. The script refuses every scouting save or delete from a player login.
+
+### Key player stats and matchup
+
+- **Season stats:** GP, PPG, RPG, APG, SPG, FG%, 3P% and FT%. All are optional and shown in one line,
+  such as `12 GP · 18.4 PPG · 38% 3P`. A percentage typed as a decimal under 1 is saved as a whole
+  percentage, so `.38` becomes `38`. Anything that isn't a number in range (0–100 for percentages, 0–999
+  otherwise) is pointed out on the form and never stored.
+- **Height:** free text such as `6'5"`, shown after the position.
+- **Matchup:** *Guarded by* and *Help* are dropdowns of our players from the Players tab, sorted by
+  jersey number. They are stored by **Player ID**, so a corrected name or number shows up on every
+  report. A player taken off the roster drops out of the matchup line. Players see the names, never the roster.
 
 **Scouting belongs to the opponent, not the game.** Play North twice and the second report already
 has North's key players, overview, private notes and their plays. There are no per-game notes. Opponents are
@@ -402,7 +420,7 @@ against them, at the bottom of the report.
 
 **Export scouting PDF**, at the top of each report, prints that report on its own. It is separate
 from the playbook PDF and never mixes in your plays. Page one has the opponent, the date and
-home/away, the notes, and the key players, with each stats link printed as text. Their plays follow,
+home/away, the notes, and the key players (height, stat line, matchup), with each stats link printed as text. Their plays follow,
 each on its own page with every step drawn, exactly as the playbook PDF draws yours. Use your
 browser's "Save as PDF" (computer) or the share sheet (phone).
 
@@ -431,13 +449,16 @@ ever sent a game's ID, date, opponent and home/away — never a score.
 | Tab | Columns | One row per |
 |---|---|---|
 | `Opponents` | `OpponentKey`, `Opponent`, `Overview`, `Updated`, `UpdatedBy` | opponent |
-| `ScoutPlayers` | `Id`, `OpponentKey`, `Number`, `Name`, `Position`, `Blurb`, `StatsUrl`, `Order`, `Updated`, `UpdatedBy` | key player |
+| `ScoutPlayers` | `Id`, `OpponentKey`, `Number`, `Name`, `Position`, `Blurb`, `StatsUrl`, `Order`, `Updated`, `UpdatedBy`, `Height`, `Stats`, `GuardId`, `HelpId`, `MatchupNote` | key player |
 | `ScoutPrivate` | `OpponentKey`, `Notes`, `Updated`, `UpdatedBy` | opponent — **admin only** |
 | `OpponentPlays` | `Id`, `OpponentKey`, `Opponent`, `SourceId`, `GameId`, `Name`, `Updated`, `UpdatedBy`, `JSON` | opponent play |
 
 `OpponentKey` is the opponent's name in lowercase with spaces tidied. In `OpponentPlays`, `SourceId` is
 the builder play it was saved from (how a second save finds the first), `GameId` is the game picked
-when it was first saved, and `JSON` is the play itself. Private notes have a tab of
+when it was first saved, and `JSON` is the play itself. In `ScoutPlayers`, `Stats` is the season line as JSON
+(`{"ppg":"18.4","3p":"38"}`), and `GuardId`/`HelpId` are **Player IDs** from our Players tab (`P1`), not names.
+The columns from `Height` on were added later. A tab made before them gets those header cells filled in
+the first time a key player is saved (or when `checkSetup` runs), and its older rows read as empty. Private notes have a tab of
 their own that only an admin request ever opens, so they can't leak through another tab's reply. A
 key player's `Order` sorts the list (lower first; ties go by number). It isn't on the page yet, but
 you can set it in the sheet. Each opponent holds up to 30 key players.
@@ -513,8 +534,8 @@ Optional:
 **4. Run → `checkSetup`** from the editor. This is also what triggers Google's authorization prompt.
 It names any property you have missed instead of leaving you to work it out from a broken page.
 It also creates any tab the script writes to that is missing (`SignIns`, `Plays`, `AdminPlays`, the
-scouting tabs and `OpponentPlays`) with its header row, and logs the time zone and today's date that scouting uses. **It never clears or rewrites a tab that already exists**; if one's header row
-has drifted, it logs a warning and leaves it alone.
+scouting tabs and `OpponentPlays`) with its header row, and logs the time zone and today's date that scouting uses. **It never clears or rewrites a tab that already exists.** The only thing it adds is a missing header cell for a
+column added to the end of a tab later. If a header row has drifted, it logs a warning and leaves it alone.
 
 **5. Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
 "Anyone" is about the *endpoint*, not your data — the script still refuses every request that
