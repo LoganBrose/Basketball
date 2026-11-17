@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import {
   pathD, tangentAt, unitNormal, arrowLength, dribbleD, screenBarD, midpoint, TOKEN_R,
 } from '../assets/js/draw.js';
-import { stepTo, stepLabel, STEP_MS, STEP_STILL_MS } from '../assets/js/playviewer.js';
+import { stepTo, stepLabel, STEP_STILL_MS } from '../assets/js/playviewer.js';
 
 const straight = { from: { x: 0, y: 0 }, to: { x: 10, y: 0 } };
 const curved = { from: { x: 0, y: 0 }, ctrl: { x: 5, y: 5 }, to: { x: 10, y: 0 } };
@@ -78,6 +78,11 @@ test('the step label names the step when it has a name', () => {
 
 test('an opponent play moves at the builder\'s speed', () => {
   const src = readFileSync(new URL('../assets/js/playbook.js', import.meta.url), 'utf8');
-  assert.match(src, new RegExp(`const STEP_MS = ${STEP_MS};`));
+  const viewer = readFileSync(new URL('../assets/js/playviewer.js', import.meta.url), 'utf8');
+  for (const file of [src, viewer]) {
+    assert.match(file, /ms: stepDuration\(frame\(\)\)/);
+    assert.match(file, /a\.ms = stepDuration\(frame\(\)\);/);
+    assert.match(file, /dt \/ \(a\.still \? STEP_STILL_MS : a\.ms\)/);
+  }
   assert.match(src, new RegExp(`const STEP_STILL_MS = ${STEP_STILL_MS};`));
 });

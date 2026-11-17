@@ -189,6 +189,18 @@ export function carryOverTokens(frame) {
   return planStep(frame).end.map((t) => ({ ...t, id: uid() }));
 }
 
+/** Play animation timing: a step takes longer the more arrows it has to show. */
+export const STEP_BASE_MS = 1050;
+export const STEP_PER_ARROW_MS = 350;
+export const STEP_MIN_MS = 1400;   // one arrow, or none
+export const STEP_MAX_MS = 2800;   // five arrows and up
+
+/** How long one step of the Play animation takes, in milliseconds. */
+export function stepDuration(frame) {
+  const n = (frame && Array.isArray(frame.arrows)) ? frame.arrows.length : 0;
+  return Math.min(STEP_MAX_MS, Math.max(STEP_MIN_MS, STEP_BASE_MS + STEP_PER_ARROW_MS * n));
+}
+
 /** Slow out of the start and into the finish, so a cut reads as a cut. */
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 const clamp01 = (t) => Math.min(1, Math.max(0, t));

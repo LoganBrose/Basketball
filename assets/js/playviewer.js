@@ -8,11 +8,15 @@
  */
 
 import { courtSize, renderCourt } from './court.js';
-import { planStep, tokensAt, normalizePlay } from './library.js';
+import {
+  planStep, tokensAt, normalizePlay, stepDuration,
+} from './library.js';
 import { createDrawer, node } from './draw.js';
 
-/** The builder's timings, so a play moves the same everywhere. */
-export const STEP_MS = 2800;
+/**
+ * The builder's timings, so a play moves the same everywhere: a step takes
+ * stepDuration(frame) to move, or this long when motion is reduced.
+ */
 export const STEP_STILL_MS = 2000;
 
 /** The step to show after pressing Previous or Next, kept inside the play. */
@@ -122,7 +126,9 @@ export function mountPlayViewer(host, raw) {
     if (state.anim) return;
     // On the last step, Play replays the whole play.
     if (state.frame >= count - 1 && count > 1 && !(frame().arrows || []).length) state.frame = 0;
-    state.anim = { t: 0, plan: planStep(frame()), raf: 0, last: null, still: reduced() };
+    state.anim = {
+      t: 0, plan: planStep(frame()), ms: stepDuration(frame()), raf: 0, last: null, still: reduced(),
+    };
     state.anim.raf = requestAnimationFrame(tick);
     render();
   }
@@ -132,12 +138,13 @@ export function mountPlayViewer(host, raw) {
     if (!a) return;
     const dt = a.last == null ? 0 : now - a.last;
     a.last = now;
-    a.t += dt / (a.still ? STEP_STILL_MS : STEP_MS);
+    a.t += dt / (a.still ? STEP_STILL_MS : a.ms);
     if (a.t >= 1) {
       if (state.frame >= count - 1) { stop(); return; }
       state.frame += 1;
       a.t = 0;
       a.plan = planStep(frame());
+      a.ms = stepDuration(frame());
     }
     render();
     a.raf = requestAnimationFrame(tick);
