@@ -12,8 +12,8 @@ import { planStep, tokensAt, normalizePlay } from './library.js';
 import { createDrawer, node } from './draw.js';
 
 /** The builder's timings, so a play moves the same everywhere. */
-export const STEP_MS = 1400;
-export const STEP_STILL_MS = 1000;
+export const STEP_MS = 2800;
+export const STEP_STILL_MS = 2000;
 
 /** The step to show after pressing Previous or Next, kept inside the play. */
 export function stepTo(index, delta, count) {
