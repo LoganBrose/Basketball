@@ -100,15 +100,23 @@ export function pointAt(a, t) {
  *
  * Arrows aren't linked to tokens, so each is claimed by the nearest player at
  * its start. Cuts, dribbles and screens move that player to the arrow's end;
- * a pass hands the ball to whoever is nearest its end, so passes are applied
- * after movement — a pass to a cutter lands on the cutter.
+ * a pass hands the ball to whoever is nearest its end.
+ *
+ * Who goes first depends on the passer:
+ *   - pass and cut (or screen): the ball leaves first, from where the passer
+ *     stands, and then they cut — an "early" pass;
+ *   - dribble then pass, or a pass from a player standing still: movement
+ *     first, then the pass — so a pass to a cutter lands on the cutter.
  *
  * Returns token indexes into frame.tokens, plus:
- *   mid   the tokens after movement, before any pass
- *   end   the tokens once the step is over
- *   moves    [{ index, arrow }]   a token following an arrow (a dribbled ball too)
- *   passes   [{ arrow, ballIdx, passerIdx, from, to }]  the ball in the air;
- *            ballIdx is null when the ball is a flag on the passer
+ *   afterEarly  the tokens after early passes, before anyone moves
+ *   mid         the tokens after movement, before any late pass
+ *   end         the tokens once the step is over
+ *   earlyPasses [{ arrow, ballIdx, passerIdx, from, to }]  thrown before movement
+ *   moves       [{ index, arrow }]   a token following an arrow (a dribbled ball,
+ *               or a loose ball caught early by a player who then moves)
+ *   passes      [{ arrow, ballIdx, passerIdx, from, to }]  thrown after movement;
+ *               ballIdx is null when the ball is a flag on the passer
  */
 export function planStep(frame) {
   const tokens = structuredClone(frame.tokens || []).map((t) => ({ ...t, start: { x: t.x, y: t.y } }));
@@ -128,50 +136,79 @@ export function planStep(frame) {
     return best;
   };
 
+  const strip = (list) => list.map(({ start, ...t }) => structuredClone(t));
   const balls = tokens.filter((t) => t.kind === 'ball');
+  const players = tokens.filter((t) => MOVERS.has(t.kind));
+
+  // Who moves where. Claiming uses start positions only, so this can be
+  // worked out before anything is applied.
   const moved = new Set();
   const moves = [];
-
+  const moveOf = new Map();   // player -> their arrow
   for (const a of arrows) {
     if (a.kind === 'pass') continue;
-    const owner = nearest(tokens.filter((t) => MOVERS.has(t.kind) && !moved.has(t)), a.from);
+    const owner = nearest(players.filter((t) => !moved.has(t)), a.from);
     if (!owner) continue;
     moved.add(owner);
+    moveOf.set(owner, a);
     moves.push({ index: idx(owner), arrow: a });
     if (a.kind === 'dribble') {
       const ball = nearest(balls.filter((b) => !moved.has(b)), owner.start);
       if (ball) {
         moved.add(ball);
-        ball.x = a.to.x; ball.y = a.to.y;
         moves.push({ index: idx(ball), arrow: a });
       }
     }
-    owner.x = a.to.x;
-    owner.y = a.to.y;
   }
 
-  const strip = (list) => list.map(({ start, ...t }) => structuredClone(t));
-  const mid = strip(tokens);
+  // Hand the ball over; returns the pass record, or null when nobody catches it.
+  const throwBall = (a, passer, receiver, ball, from) => {
+    const flagged = Boolean(passer?.hasBall);
+    if (passer) passer.hasBall = false;
+    if (ball) { ball.x = receiver.x; ball.y = receiver.y; }
+    if (flagged || !ball) receiver.hasBall = true;
+    return { arrow: a, ballIdx: idx(ball), passerIdx: idx(passer), from, to: { x: receiver.x, y: receiver.y } };
+  };
 
-  const players = tokens.filter((t) => MOVERS.has(t.kind));
-  const passes = [];
+  // Early passes: the passer cuts or screens, so the ball goes first.
+  const earlyPasses = [];
+  const early = new Set();
   for (const a of arrows) {
     if (a.kind !== 'pass') continue;
+    const passer = nearest(players, a.from);
+    const kind = passer && moveOf.get(passer)?.kind;
+    if (kind !== 'cut' && kind !== 'screen') continue;
+    const receiver = nearest(players, a.to);
+    if (!receiver || receiver === passer) continue;   // drawn to where someone ends up: after movement
+    const ball = nearest(balls.filter((b) => !moved.has(b)), passer.start);
+    const from = ball ? { x: ball.x, y: ball.y } : { x: passer.x, y: passer.y };
+    earlyPasses.push(throwBall(a, passer, receiver, ball, from));
+    early.add(a);
+    // A loose ball caught by a player who then moves goes with them.
+    const run = moveOf.get(receiver);
+    if (ball && run) {
+      moved.add(ball);
+      moves.push({ index: idx(ball), arrow: run });
+    }
+  }
+  const afterEarly = strip(tokens);
+
+  for (const m of moves) {
+    tokens[m.index].x = m.arrow.to.x;
+    tokens[m.index].y = m.arrow.to.y;
+  }
+  const mid = strip(tokens);
+
+  const passes = [];
+  for (const a of arrows) {
+    if (a.kind !== 'pass' || early.has(a)) continue;
     const passer = nearest(players, a.from);
     const receiver = nearest(players, a.to, (t) => [t.start, t]);
     const ball = nearest(balls, passer ? passer.start : a.from);
     const from = ball ? { x: ball.x, y: ball.y } : passer ? { x: passer.x, y: passer.y } : { ...a.from };
 
     if (receiver && receiver !== passer) {
-      // The ball is either a flag on the passer or a loose token beside them.
-      const flagged = Boolean(passer?.hasBall);
-      if (passer) passer.hasBall = false;
-      if (ball) { ball.x = receiver.x; ball.y = receiver.y; }
-      if (flagged || !ball) receiver.hasBall = true;
-      passes.push({
-        arrow: a, ballIdx: idx(ball), passerIdx: idx(passer),
-        from, to: { x: receiver.x, y: receiver.y },
-      });
+      passes.push(throwBall(a, passer, receiver, ball, from));
     } else if (ball) {
       ball.x = a.to.x;
       ball.y = a.to.y;
@@ -179,7 +216,7 @@ export function planStep(frame) {
     }
   }
 
-  return { mid, end: strip(tokens), moves, passes };
+  return { afterEarly, mid, end: strip(tokens), earlyPasses, moves, passes };
 }
 
 /**
@@ -211,10 +248,11 @@ export const MOVE_SHARE = 0.6;
 /**
  * Where everything is at moment t (0 to 1) of a step, for the Play animation.
  *
- * Players move first, along their arrows' curves, then passes fly — the same
- * order carryOverTokens applies them in, so t = 1 is exactly where the next
- * step starts. A step with only movement or only passes gives it the whole
- * time.
+ * Up to three phases, in the same order planStep applies them, so t = 1 is
+ * exactly where the next step starts: early passes (pass and cut — the ball
+ * leaves first), then players move along their arrows' curves, then late
+ * passes (dribble then pass, or a pass to a cutter). A phase the step doesn't
+ * have takes no time.
  *
  * Returns { tokens, flyingBalls }: flyingBalls are balls in the air that, when
  * still, are drawn as a flag on a player rather than as a token.
@@ -223,30 +261,44 @@ export function tokensAt(frame, t, plan = planStep(frame)) {
   t = clamp01(Number(t) || 0);
   if (t >= 1) return { tokens: structuredClone(plan.end), flyingBalls: [] };
 
-  const hasMoves = plan.moves.length > 0;
-  const hasPasses = plan.passes.length > 0;
-  const moveEnd = !hasPasses ? 1 : !hasMoves ? 0 : MOVE_SHARE;
+  const earlyPasses = plan.earlyPasses || [];
+  const phases = [
+    earlyPasses.length && { w: 1 - MOVE_SHARE, run: (v) => fly(frame.tokens || [], earlyPasses, v) },
+    plan.moves.length && { w: MOVE_SHARE, run: (u) => move(frame, plan, u) },
+    plan.passes.length && { w: 1 - MOVE_SHARE, run: (v) => fly(plan.mid, plan.passes, v) },
+  ].filter(Boolean);
+  if (!phases.length) return { tokens: structuredClone(frame.tokens || []), flyingBalls: [] };
 
-  if (t < moveEnd || !hasPasses) {
-    const u = ease(clamp01(t / moveEnd));
-    const tokens = structuredClone(frame.tokens || []);
-    for (const m of plan.moves) {
-      // An arrow is drawn from near the player, not from their centre: start
-      // where they stand and blend onto the curve, so nobody jumps at t = 0.
-      const t0 = tokens[m.index];
-      const on = pointAt(m.arrow, u);
-      const dx = t0.x - m.arrow.from.x;
-      const dy = t0.y - m.arrow.from.y;
-      t0.x = on.x + dx * (1 - u);
-      t0.y = on.y + dy * (1 - u);
-    }
-    return { tokens, flyingBalls: [] };
+  const total = phases.reduce((n, p) => n + p.w, 0);
+  let at = t * total;
+  for (const p of phases) {
+    if (at < p.w) return p.run(ease(clamp01(at / p.w)));
+    at -= p.w;
   }
+  return { tokens: structuredClone(plan.end), flyingBalls: [] };
+}
 
-  const v = ease(clamp01((t - moveEnd) / (1 - moveEnd)));
-  const tokens = structuredClone(plan.mid);
+/** Players (and dribbled balls) part-way, u eased, along their arrows. */
+function move(frame, plan, u) {
+  const tokens = structuredClone(plan.afterEarly || frame.tokens || []);
+  for (const m of plan.moves) {
+    // An arrow is drawn from near the player, not from their centre: start
+    // where they stand and blend onto the curve, so nobody jumps at u = 0.
+    const t0 = tokens[m.index];
+    const on = pointAt(m.arrow, u);
+    const dx = t0.x - m.arrow.from.x;
+    const dy = t0.y - m.arrow.from.y;
+    t0.x = on.x + dx * (1 - u);
+    t0.y = on.y + dy * (1 - u);
+  }
+  return { tokens, flyingBalls: [] };
+}
+
+/** Balls part-way, v eased, through the air from `before`. */
+function fly(before, passes, v) {
+  const tokens = structuredClone(before);
   const flyingBalls = [];
-  for (const pass of plan.passes) {
+  for (const pass of passes) {
     // Follow the arrow's curve, nudged so the flight starts at the ball and
     // lands on the receiver even when the arrow was drawn a little off them.
     const on = pointAt(pass.arrow, v);

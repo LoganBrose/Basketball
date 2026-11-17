@@ -331,6 +331,56 @@ test('tokensAt: a loose ball token flies itself rather than a second ball', () =
   assert.deepEqual(pos(tokensAt(frame, 1).tokens.find((t) => t.kind === 'ball')), [30, 10]);
 });
 
+test('tokensAt: pass and cut — the ball leaves first, then the passer cuts', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10, { hasBall: true }), tok('2', 30, 10)],
+    arrows: [arrow('pass', [11, 10], [29, 10]), arrow('cut', [10, 11], [20, 30])],
+  };
+
+  const passing = tokensAt(frame, 0.2);
+  assert.deepEqual(pos(byLabel(passing.tokens, '1')), [10, 10], 'the passer has not cut yet');
+  assert.equal(passing.flyingBalls.length, 1);
+  const [ball] = passing.flyingBalls;
+  assert.ok(ball.x > 10 && ball.x < 30 && Math.abs(ball.y - 10) < 0.01, 'thrown from where the passer stands');
+
+  const cutting = tokensAt(frame, 0.7);
+  assert.deepEqual(cutting.flyingBalls, []);
+  assert.equal(byLabel(cutting.tokens, '2').hasBall, true, 'caught before the cut');
+  const p1 = byLabel(cutting.tokens, '1');
+  assert.ok(p1.y > 10 && p1.y < 30, 'part-way through the cut');
+
+  const strip = (list) => list.map(({ id, ...t }) => t);
+  assert.deepEqual(strip(tokensAt(frame, 1).tokens), strip(carryOverTokens(frame)));
+  assert.deepEqual(pos(byLabel(carryOverTokens(frame), '1')), [20, 30]);
+});
+
+test('tokensAt: dribble then pass — the dribble comes first, the pass leaves from its end', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10, { hasBall: true }), tok('2', 30, 30)],
+    arrows: [arrow('dribble', [10, 11], [20, 20]), arrow('pass', [11, 10], [29, 30])],
+  };
+  const dribbling = tokensAt(frame, MOVE_SHARE / 2);
+  assert.deepEqual(dribbling.flyingBalls, []);
+  assert.equal(byLabel(dribbling.tokens, '1').hasBall, true);
+
+  const passing = tokensAt(frame, MOVE_SHARE + 0.01);
+  assert.deepEqual(pos(byLabel(passing.tokens, '1')), [20, 20], 'the dribble is done');
+  assert.equal(passing.flyingBalls.length, 1);
+  assert.ok(Math.abs(passing.flyingBalls[0].x - 20) < 0.5, 'thrown from the end of the dribble');
+  assert.equal(byLabel(carryOverTokens(frame), '2').hasBall, true);
+});
+
+test('tokensAt: pass and cut with a loose ball — the catcher who then cuts takes it along', () => {
+  const frame = {
+    tokens: [tok('1', 10, 10), { id: 'b', kind: 'ball', label: '', x: 11, y: 10, hasBall: false }, tok('2', 30, 10)],
+    arrows: [arrow('pass', [11, 10], [29, 10]), arrow('cut', [10, 11], [10, 30]), arrow('cut', [30, 11], [30, 30])],
+  };
+  const next = carryOverTokens(frame);
+  assert.deepEqual(pos(next.find((t) => t.kind === 'ball')), [30, 30]);
+  const strip = (list) => list.map(({ id, ...t }) => t);
+  assert.deepEqual(strip(tokensAt(frame, 1).tokens), strip(next));
+});
+
 test('tokensAt: a step with no arrows stands still', () => {
   const frame = { tokens: [tok('1', 10, 10)], arrows: [] };
   assert.deepEqual(tokensAt(frame, 0.5).tokens, frame.tokens);
