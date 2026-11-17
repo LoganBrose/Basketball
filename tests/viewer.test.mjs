@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadCodeGs } from './helpers/apps-script.mjs';
 import { safeVideoUrl, youtubeId, youtubeEmbed, normalizePlay, newPlay, searchPlays } from '../assets/js/library.js';
-import { resultLabel } from '../assets/js/admin.js';
+import { resultLabel, peopleFrom, filterRows } from '../assets/js/admin.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -97,7 +97,7 @@ test('a row with an unreadable timestamp is left out rather than breaking the li
 });
 
 test('the admin list labels viewer and admin sign-ins', () => {
-  assert.equal(resultLabel({ result: 'viewer' }), 'Signed in (view only)');
+  assert.equal(resultLabel({ result: 'viewer' }), 'Signed in (player)');
   assert.equal(resultLabel({ result: 'admin' }), 'Signed in (admin)');
   assert.equal(resultLabel({ result: 'signin' }), 'Signed in');
   assert.equal(resultLabel({ result: 'failed:site' }), 'Failed attempt');
@@ -187,4 +187,17 @@ test('VIEWER_HOURS changes how long a viewer sign-in lasts', () => {
   const { fns } = loadCodeGs({ VIEWER_PASSWORD: 'view-pw', VIEWER_HOURS: '2' });
   const res = fns.handleSignIn({ name: 'Parent', password: 'view-pw' });
   assert.ok(Math.abs(res.expiresAt - (Date.now() + 2 * 60 * 60 * 1000)) < 5000);
+});
+
+test('the admin People table shows a view-only sign-in as a player', () => {
+  const rows = [
+    { name: 'Sam', result: 'viewer', at: '2' },
+    { name: 'Coach', result: 'signin', at: '2' },
+    { name: 'Boss', result: 'admin', at: '2' },
+    { name: 'Nobody', result: 'failed:roster', at: '1' },
+    { name: 'Sam', result: 'signin', at: '1' },
+  ];
+  const role = Object.fromEntries(peopleFrom(rows).map((p) => [p.name, p.role]));
+  assert.deepEqual(role, { Sam: 'viewer', Coach: 'coach', Boss: 'admin', Nobody: null });
+  assert.deepEqual(filterRows(rows, 'player').map((r) => r.name), ['Sam']);
 });

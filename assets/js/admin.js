@@ -51,14 +51,26 @@ export function peopleFrom(rows) {
     if (isSignOutAll(row) || isLockout(row)) continue;
     const name = cleanName(row.name) || '(no name)';
     if (!byName.has(name)) {
-      byName.set(name, { name, signIns: 0, failures: 0, lastSeen: row.at });
+      byName.set(name, { name, role: null, signIns: 0, failures: 0, lastSeen: row.at });
     }
     const person = byName.get(name);
-    if (isFailure(row)) person.failures++;
-    else person.signIns++;
+    if (isFailure(row)) {
+      person.failures++;
+    } else {
+      person.signIns++;
+      // Newest first, so the first success is how they sign in now.
+      if (person.role === null) person.role = roleOfResult(row.result);
+    }
   }
 
   return [...byName.values()].sort((a, b) => b.signIns - a.signIns || a.name.localeCompare(b.name));
+}
+
+/** The access a successful log row gave: 'viewer' (a player), 'admin' or 'coach'. */
+export function roleOfResult(result) {
+  if (result === 'viewer') return 'viewer';
+  if (result === 'admin') return 'admin';
+  return 'coach';
 }
 
 /** What the Result column says for one row. */
@@ -68,7 +80,7 @@ export function resultLabel(row) {
   if (isSignOutAll(row)) return 'Signed everyone out';
   if (isLockout(row)) return 'Sign-in locked for 10 minutes (too many wrong passwords)';
   if (row?.result === 'admin') return 'Signed in (admin)';
-  if (row?.result === 'viewer') return 'Signed in (view only)';
+  if (row?.result === 'viewer') return 'Signed in (player)';
   return 'Signed in';
 }
 
@@ -77,13 +89,13 @@ export function filterRows(rows, query) {
   const q = String(query || '').trim().toLowerCase();
   if (q === '') return rows || [];
   return (rows || []).filter((row) =>
-    [row.name, row.page, row.at, row.result].some((v) => String(v || '').toLowerCase().includes(q)));
+    [row.name, row.page, row.at, row.result, resultLabel(row)].some((v) => String(v || '').toLowerCase().includes(q)));
 }
 
 /** What a "Signed in now" entry's access column says. */
 export function roleLabel(role) {
   if (role === 'admin') return 'Admin';
-  if (role === 'viewer') return 'View only';
+  if (role === 'viewer') return 'Player';
   return 'Coach';
 }
 
@@ -168,7 +180,7 @@ function renderActive(host, active) {
   const btn = el('button', { class: 'btn danger', text: 'Sign everyone out', attrs: { type: 'button' } });
   btn.addEventListener('click', async () => {
     const ok = globalThis.confirm(
-      'Sign everyone out?\n\nEvery coach, viewer and other admin session ends now, on every device. '
+      'Sign everyone out?\n\nEvery coach, player and other admin session ends now, on every device. '
       + 'Each of them will need the password again. You stay signed in.');
     if (!ok) return;
 
@@ -226,13 +238,14 @@ export function renderSignIns(host, rows, active, days = 30) {
 
   const pTable = el('table');
   const pHead = el('tr');
-  for (const h of ['Name', 'Sign-ins', 'Failed', 'Last seen']) pHead.append(el('th', { text: h }));
+  for (const h of ['Name', 'Access', 'Sign-ins', 'Failed', 'Last seen']) pHead.append(el('th', { text: h }));
   pTable.append(el('thead', {}, pHead));
 
   const pBody = el('tbody');
   for (const person of people) {
     const tr = el('tr');
     tr.append(el('td', { text: person.name }));
+    tr.append(el('td', { text: person.role ? roleLabel(person.role) : '—' }));
     tr.append(el('td', { text: String(person.signIns) }));
     tr.append(el('td', { class: person.failures ? 'flagged' : '', text: person.failures ? String(person.failures) : '—' }));
     tr.append(el('td', { text: person.lastSeen || '—' }));

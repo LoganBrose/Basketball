@@ -406,7 +406,7 @@ test('Sign everyone out reads as an event, not as a sign-in', () => {
 test('access labels for the Signed in now list', () => {
   assert.equal(roleLabel('admin'), 'Admin');
   assert.equal(roleLabel('coach'), 'Coach');
-  assert.equal(roleLabel('viewer'), 'View only');
+  assert.equal(roleLabel('viewer'), 'Player');
 });
 
 function withStore(fn) {
