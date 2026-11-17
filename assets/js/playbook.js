@@ -13,7 +13,7 @@ import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl, youtubeEmbed,
-  planStep, tokensAt,
+  planStep, tokensAt, moveFrame, renumberDefaultLabels,
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
@@ -582,8 +582,23 @@ function renderFrames() {
     chip.type = 'button';
     chip.className = 'frame-chip' + (i === S.frame ? ' active' : '');
     chip.textContent = f.label || `Step ${i + 1}`;
-    if (!S.viewer) chip.title = 'Double-click to rename';
-    chip.addEventListener('click', () => {
+    chip.dataset.index = String(i);
+    if (!S.viewer) {
+      chip.title = 'Drag to reorder · double-click to rename';
+      chip.setAttribute('aria-keyshortcuts', 'Alt+Shift+ArrowLeft Alt+Shift+ArrowRight');
+      chip.addEventListener('pointerdown', (e) => startChipDrag(e, chip, i));
+      chip.addEventListener('keydown', (e) => {
+        if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        // Ours alone: not a browser Back/Forward, not a token nudge.
+        e.preventDefault();
+        e.stopPropagation();
+        reorderFrame(i, e.key === 'ArrowLeft' ? i - 1 : i + 2, { focus: true });
+      });
+    }
+    chip.addEventListener('click', (e) => {
+      // The click a drag ends with is not a pick.
+      if (chipDrag.suppressClick) { chipDrag.suppressClick = false; e.preventDefault(); return; }
       S.frame = i;
       S.selection = null;
       render();
@@ -603,6 +618,147 @@ function renderFrames() {
   $('#fr-prev').disabled = S.frame === 0;
   $('#fr-next').disabled = S.frame >= S.play.frames.length - 1;
   $('#fr-del').disabled = S.play.frames.length <= 1;
+}
+
+/**
+ * Move step `from` into gap `to` (0 = before the first step). A move that
+ * leaves the order as it was records nothing and saves nothing.
+ */
+function reorderFrame(from, to, { focus = false } = {}) {
+  const n = S.play.frames.length;
+  if (S.viewer || to < 0 || to > n || to === from || to === from + 1) return;
+  pushUndo();
+  S.frame = moveFrame(S.play.frames, from, to);
+  renumberDefaultLabels(S.play.frames);
+  S.selection = null;
+  render();
+  scheduleSave();
+  // Keep focus on the step that moved so the shortcut can be pressed again.
+  if (focus) $(`#frame-chips .frame-chip[data-index="${S.frame}"]`)?.focus();
+}
+
+/* Dragging a step chip. One drag at a time, so one record. */
+const chipDrag = { active: null, suppressClick: false };
+
+/** How far outside the strip a pointer may wander and still be dropping. */
+const DROP_SLOP = 40;
+
+function startChipDrag(e, chip, index) {
+  if (S.viewer || e.button !== 0 || chipDrag.active) return;
+  if (e.target.closest('input, textarea, select') || (e.target !== chip && e.target.closest('button') !== chip)) return;
+  chipDrag.suppressClick = false;
+  chipDrag.active = {
+    chip, index, pointerId: e.pointerId,
+    x: e.clientX, y: e.clientY,
+    threshold: e.pointerType === 'touch' ? 10 : 6,
+    dragging: false, gap: null, marked: null,
+  };
+  // Capture now, so a quick flick off the chip still counts as a drag.
+  try { chip.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+  chip.addEventListener('pointermove', onChipDragMove);
+  chip.addEventListener('pointerup', onChipDragUp);
+  chip.addEventListener('pointercancel', cancelChipDrag);
+  chip.addEventListener('lostpointercapture', cancelChipDrag);
+  document.addEventListener('keydown', onChipDragKey, true);
+}
+
+function onChipDragMove(e) {
+  const d = chipDrag.active;
+  if (!d || e.pointerId !== d.pointerId) return;
+  if (!d.dragging) {
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < d.threshold) return;
+    d.dragging = true;
+    d.chip.classList.add('dragging');
+    $('#frame-chips').classList.add('reordering');
+  }
+  e.preventDefault();
+  d.gap = dropGap(e.clientX, e.clientY, d.index);
+  markDrop(d);
+}
+
+/**
+ * Which gap the pointer is over, or null when it's off the strip or the drop
+ * would change nothing. Chips wrap, so only the row under the pointer counts.
+ */
+function dropGap(x, y, from) {
+  const strip = $('#frame-chips');
+  const box = strip.getBoundingClientRect();
+  if (x < box.left - DROP_SLOP || x > box.right + DROP_SLOP
+    || y < box.top - DROP_SLOP || y > box.bottom + DROP_SLOP) return null;
+
+  const chips = [...strip.querySelectorAll('.frame-chip')];
+  if (chips.length === 0) return null;
+  const rects = chips.map((c) => c.getBoundingClientRect());
+
+  // The row under the pointer, or else the nearest one.
+  let row = rects.filter((r) => y >= r.top && y <= r.bottom);
+  if (row.length === 0) {
+    const dist = (r) => Math.min(Math.abs(y - r.top), Math.abs(y - r.bottom));
+    const best = Math.min(...rects.map(dist));
+    row = rects.filter((r) => dist(r) === best);
+  }
+
+  let gap = rects.indexOf(row[row.length - 1]) + 1;   // past the row's end
+  for (const r of row) {
+    if (x < r.left + r.width / 2) { gap = rects.indexOf(r); break; }
+  }
+  return gap === from || gap === from + 1 ? null : gap;
+}
+
+function markDrop(d) {
+  if (d.marked) d.marked.classList.remove('drop-before', 'drop-after');
+  d.marked = null;
+  if (d.gap == null) return;
+  const chips = $('#frame-chips').querySelectorAll('.frame-chip');
+  // Mark the chip after the gap; the very end is marked on the last chip.
+  const target = d.gap < chips.length ? chips[d.gap] : chips[chips.length - 1];
+  target.classList.add(d.gap < chips.length ? 'drop-before' : 'drop-after');
+  d.marked = target;
+}
+
+function onChipDragUp(e) {
+  const d = chipDrag.active;
+  if (!d || e.pointerId !== d.pointerId) return;
+  const { dragging, gap, index } = d;
+  endChipDrag();
+  if (!dragging) return;          // a plain press: let the click through
+  chipDrag.suppressClick = true;
+  // The click, if it comes, comes now; don't let the flag outlive it.
+  setTimeout(() => { chipDrag.suppressClick = false; }, 0);
+  if (gap != null) reorderFrame(index, gap);
+}
+
+function onChipDragKey(e) {
+  if (e.key !== 'Escape' || !chipDrag.active) return;
+  e.preventDefault();
+  e.stopPropagation();
+  cancelChipDrag();
+}
+
+function cancelChipDrag() {
+  const d = chipDrag.active;
+  if (!d) return;
+  if (d.dragging) {
+    chipDrag.suppressClick = true;
+    setTimeout(() => { chipDrag.suppressClick = false; }, 0);
+  }
+  endChipDrag();
+}
+
+function endChipDrag() {
+  const d = chipDrag.active;
+  if (!d) return;
+  chipDrag.active = null;
+  const { chip } = d;
+  chip.removeEventListener('pointermove', onChipDragMove);
+  chip.removeEventListener('pointerup', onChipDragUp);
+  chip.removeEventListener('pointercancel', cancelChipDrag);
+  chip.removeEventListener('lostpointercapture', cancelChipDrag);
+  document.removeEventListener('keydown', onChipDragKey, true);
+  if (d.marked) d.marked.classList.remove('drop-before', 'drop-after');
+  chip.classList.remove('dragging');
+  $('#frame-chips')?.classList.remove('reordering');
+  try { if (chip.hasPointerCapture(d.pointerId)) chip.releasePointerCapture(d.pointerId); } catch { /* gone */ }
 }
 
 function addFrame() {

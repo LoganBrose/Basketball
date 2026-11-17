@@ -335,3 +335,52 @@ test('tokensAt: a step with no arrows stands still', () => {
   const frame = { tokens: [tok('1', 10, 10)], arrows: [] };
   assert.deepEqual(tokensAt(frame, 0.5).tokens, frame.tokens);
 });
+
+/* moveFrame / renumberDefaultLabels ------------------------------------ */
+
+import { moveFrame, renumberDefaultLabels } from '../assets/js/library.js';
+
+const steps = (...names) => names.map((label) => ({ label }));
+const labels = (frames) => frames.map((f) => f.label);
+
+test('moveFrame: forward lands before the gap it was dropped in', () => {
+  const f = steps('A', 'B', 'C', 'D');
+  assert.equal(moveFrame(f, 0, 3), 2);
+  assert.deepEqual(labels(f), ['B', 'C', 'A', 'D']);
+});
+
+test('moveFrame: backward', () => {
+  const f = steps('A', 'B', 'C', 'D');
+  assert.equal(moveFrame(f, 3, 1), 1);
+  assert.deepEqual(labels(f), ['A', 'D', 'B', 'C']);
+});
+
+test('moveFrame: to the start and to the end', () => {
+  const f = steps('A', 'B', 'C');
+  assert.equal(moveFrame(f, 2, 0), 0);
+  assert.deepEqual(labels(f), ['C', 'A', 'B']);
+  assert.equal(moveFrame(f, 0, 3), 2);
+  assert.deepEqual(labels(f), ['A', 'B', 'C']);
+});
+
+test('moveFrame: dropping beside itself changes nothing', () => {
+  const f = steps('A', 'B', 'C');
+  assert.equal(moveFrame(f, 1, 1), 1);
+  assert.equal(moveFrame(f, 1, 2), 1);
+  assert.deepEqual(labels(f), ['A', 'B', 'C']);
+});
+
+test('moveFrame: out-of-range values are clamped', () => {
+  const f = steps('A', 'B', 'C');
+  assert.equal(moveFrame(f, 0, 99), 2);
+  assert.deepEqual(labels(f), ['B', 'C', 'A']);
+  assert.equal(moveFrame(f, 9, -5), 0);
+  assert.deepEqual(labels(f), ['A', 'B', 'C']);
+  assert.equal(moveFrame([], 0, 1), 0);
+});
+
+test('renumberDefaultLabels: defaults follow position, typed names stay', () => {
+  const f = steps('Action 2', 'Initial', 'Flare screen', '', 'Action 1');
+  renumberDefaultLabels(f);
+  assert.deepEqual(labels(f), ['Initial', 'Action 1', 'Flare screen', '', 'Action 4']);
+});

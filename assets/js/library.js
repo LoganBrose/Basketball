@@ -39,6 +39,41 @@ export function emptyFrame(label = 'Initial') {
   return { label, tokens: [], arrows: [], texts: [] };
 }
 
+/**
+ * Move frames[from] into gap `to` — 0 is before the first step, frames.length
+ * after the last, counted before the step is lifted out. Changes the array in
+ * place and returns the moved step's new index. Dropping a step into either
+ * gap beside it changes nothing.
+ */
+export function moveFrame(frames, from, to) {
+  const n = frames.length;
+  if (n === 0) return 0;
+  const src = Math.min(n - 1, Math.max(0, Math.trunc(from) || 0));
+  const gap = Math.min(n, Math.max(0, Math.trunc(to) || 0));
+  if (gap === src || gap === src + 1) return src;
+  const [step] = frames.splice(src, 1);
+  const dest = gap > src ? gap - 1 : gap;
+  frames.splice(dest, 0, step);
+  return dest;
+}
+
+/** The label a step gets when nobody names it: 'Initial', then 'Action 1', 'Action 2'… */
+export const defaultFrameLabel = (i) => (i === 0 ? 'Initial' : `Action ${i}`);
+
+// An empty label already shows as 'Step N' by position, so it needs nothing.
+const isDefaultLabel = (label) => label === 'Initial' || /^Action \d+$/.test(label);
+
+/**
+ * After a reorder, steps still wearing a default label are renamed for where
+ * they now stand; a name a coach typed is left alone.
+ */
+export function renumberDefaultLabels(frames) {
+  frames.forEach((f, i) => {
+    if (isDefaultLabel(f.label)) f.label = defaultFrameLabel(i);
+  });
+  return frames;
+}
+
 /** How far (feet) an arrow's end may sit from a player and still be theirs. */
 const REACH = 2.5;
 const MOVERS = new Set(['offense', 'defense', 'coach']);

@@ -636,6 +636,26 @@ code {
   font-weight: 600;
 }
 
+/* Reordering steps by dragging — editors only; a viewer's chips just pick. */
+html:not(.viewer) .frame-chip { position: relative; touch-action: none; }
+.frame-chips.reordering { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+.frame-chips.reordering .frame-chip { cursor: grabbing; }
+.frame-chip.dragging { opacity: 0.5; }
+.frame-chip.drop-before::before,
+.frame-chip.drop-after::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+/* Centred in the 4px gap between chips. */
+.frame-chip.drop-before::before { left: -4px; }
+.frame-chip.drop-after::after { right: -4px; }
+
 .pb-check {
   display: inline-flex;
   align-items: center;
