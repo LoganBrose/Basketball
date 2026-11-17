@@ -59,7 +59,7 @@ export const CONFIG = {
     url: 'https://script.google.com/macros/s/AKfycbz2tApnb1WlI2bDFSXC2nAETdAnH9nSd2ZbozLNldtR-e0QLqSELtMrDCGu1nKLac0a/exec',
     days: 30,
     adminHours: 24,
-    title: 'Coach Tools',
+    title: 'Team Playbook',
   },
 
   /** Bundled fallback data, used when the sheet can't be reached. */
