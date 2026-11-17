@@ -204,9 +204,9 @@ function render() {
 /* ------------------------------------------------------------------ */
 
 /** How long one step takes to play out, in milliseconds. */
-const STEP_MS = 1400;
+const STEP_MS = 2800;
 /** With reduced motion there is no tweening: each step is simply shown this long. */
-const STEP_STILL_MS = 1000;
+const STEP_STILL_MS = 2000;
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /**
