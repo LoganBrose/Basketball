@@ -13,7 +13,7 @@ import {
   newPlay, emptyFrame, carryOverTokens, uid, listPlays, savePlay, deletePlay, duplicatePlay,
   searchPlays, allCategories, allTags, parseImport, importPlays,
   exportPlay, exportLibrary, slugify, loadTeamPlaybook, normalizePlay, safeVideoUrl, youtubeEmbed,
-  planStep, tokensAt, moveFrame, renumberDefaultLabels,
+  planStep, tokensAt, stepDuration, moveFrame, renumberDefaultLabels,
 } from './library.js';
 import { CONFIG } from './config.js';
 import { loadAll } from './data.js';
@@ -203,8 +203,7 @@ function render() {
 /* Play animation                                                      */
 /* ------------------------------------------------------------------ */
 
-/** How long one step takes to play out, in milliseconds. */
-const STEP_MS = 2800;
+/* How long a step plays out is stepDuration(frame): more arrows, more time. */
 /** With reduced motion there is no tweening: each step is simply shown this long. */
 const STEP_STILL_MS = 2000;
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -246,7 +245,9 @@ function startAnimation() {
   S.selection = null;
   S.drag = null;
   S.draft = null;
-  S.anim = { t: 0, plan: planStep(frame()), raf: 0, last: null, still: reducedMotion() };
+  S.anim = {
+    t: 0, plan: planStep(frame()), ms: stepDuration(frame()), raf: 0, last: null, still: reducedMotion(),
+  };
   setPlayButton();
   S.anim.raf = requestAnimationFrame(tick);
 }
@@ -258,7 +259,7 @@ function tick(now) {
   if (!a) return;
   const dt = a.last == null ? 0 : now - a.last;
   a.last = now;
-  a.t += dt / (a.still ? STEP_STILL_MS : STEP_MS);
+  a.t += dt / (a.still ? STEP_STILL_MS : a.ms);
 
   if (a.t >= 1) {
     if (S.frame >= S.play.frames.length - 1) {
@@ -268,6 +269,7 @@ function tick(now) {
     S.frame += 1;
     a.t = 0;
     a.plan = planStep(frame());
+    a.ms = stepDuration(frame());
   }
 
   render();

@@ -384,3 +384,19 @@ test('renumberDefaultLabels: defaults follow position, typed names stay', () => 
   renumberDefaultLabels(f);
   assert.deepEqual(labels(f), ['Initial', 'Action 1', 'Flare screen', '', 'Action 4']);
 });
+
+/* stepDuration ---------------------------------------------------------- */
+
+import { stepDuration } from '../assets/js/library.js';
+
+test('stepDuration: more arrows, more time — 1.4s up to 2.8s at five arrows', () => {
+  const withArrows = (n) => ({ arrows: Array.from({ length: n }, () => ({ kind: 'cut' })) });
+  assert.equal(stepDuration(withArrows(0)), 1400);
+  assert.equal(stepDuration(withArrows(1)), 1400);
+  assert.equal(stepDuration(withArrows(3)), 2100);
+  assert.equal(stepDuration(withArrows(5)), 2800);
+  assert.equal(stepDuration(withArrows(6)), 2800);
+  assert.equal(stepDuration(withArrows(20)), 2800);
+  assert.equal(stepDuration({}), 1400);
+  assert.equal(stepDuration(undefined), 1400);
+});
