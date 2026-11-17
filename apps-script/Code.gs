@@ -1,5 +1,5 @@
 /**
- * Coach Tools — sign-in backend.
+ * Team Playbook — sign-in backend.
  *
  * Paste this whole file into a Google Apps Script project bound to (or just
  * owned by) your account, then deploy it as a web app. See the "Sign-in setup"

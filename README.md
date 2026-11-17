@@ -1,4 +1,4 @@
-# Coach Tools
+# Team Playbook
 
 Two static basketball coaching tools, deployable to GitHub Pages. No server, nothing to compile, no
 dependencies — deploying only copies the site's files into `dist/`.
